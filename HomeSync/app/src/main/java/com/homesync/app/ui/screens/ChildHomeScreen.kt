@@ -1166,6 +1166,7 @@ fun ChildHomeScreen(
                         guardianName = activeGuardianName,
                         pairingCode = pairingCode,
                         canonicalChildUid = canonicalChildUid,
+                        currentLocation = currentLocationTriple,
                         onSendCheckIn = {
                             val canAct = QuickActionCooldownManager.canPerformAction(context, canonicalChildUid, QuickActionCooldownManager.ACTION_SAFE_CHECKIN)
                             if (!canAct) {
@@ -1175,14 +1176,14 @@ fun ChildHomeScreen(
                             }
 
                             val lastLoc = LocationHelper.getLastKnownLocation(context)
-                            val currentLat = lastLoc?.latitude ?: 0.0
-                            val currentLng = lastLoc?.longitude ?: 0.0
+                            val currentLat = if (lastLoc != null && lastLoc.latitude != 0.0) lastLoc.latitude else currentLocationTriple.first
+                            val currentLng = if (lastLoc != null && lastLoc.longitude != 0.0) lastLoc.longitude else currentLocationTriple.second
                             val zones = SafeZoneManager.getSafeZones(context)
-                            val statusMessage = if (zones.isNotEmpty()) {
-                                val (isSafe, msg) = SafeZoneManager.checkChildSafetyStatus(currentLat, currentLng, zones)
-                                msg
-                            } else {
-                                "Check-in at current location"
+                            val (isSafe, statusMessage) = SafeZoneManager.checkChildSafetyStatus(currentLat, currentLng, zones)
+
+                            if (!isSafe) {
+                                Toast.makeText(context, "⚠️ Check-in can only be used when inside a designated Safe Zone!", Toast.LENGTH_LONG).show()
+                                return@ChildSafetyView
                             }
 
                             val eventTxId = "safe_checkin_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}"
@@ -3267,12 +3268,39 @@ fun ChildSafetyView(
     guardianName: String = "Guardian",
     pairingCode: String = "",
     canonicalChildUid: String = "",
+    currentLocation: Triple<Double, Double, String> = Triple(0.0, 0.0, "Live Location"),
     onSendCheckIn: () -> Unit,
     onCallGuardian: () -> Unit,
     onMessageGuardian: () -> Unit,
     onOpenSosModal: () -> Unit
 ) {
     val context = LocalContext.current
+    val activeFamilyId = remember { FamilyManager.getStoredFamilyId(context) }
+    var safeZonesList by remember { mutableStateOf(SafeZoneManager.getSafeZones(context)) }
+
+    DisposableEffect(activeFamilyId) {
+        val reg = SafeZoneManager.listenSafeZones(context, activeFamilyId) { fresh ->
+            safeZonesList = fresh
+        }
+        onDispose { reg?.remove() }
+    }
+
+    val childLat = currentLocation.first
+    val childLng = currentLocation.second
+    val safetyStatus = remember(childLat, childLng, safeZonesList) {
+        if (childLat != 0.0 || childLng != 0.0) {
+            SafeZoneManager.checkChildSafetyStatus(childLat, childLng, safeZonesList)
+        } else {
+            val lastLoc = LocationHelper.getLastKnownLocation(context)
+            if (lastLoc != null && (lastLoc.latitude != 0.0 || lastLoc.longitude != 0.0)) {
+                SafeZoneManager.checkChildSafetyStatus(lastLoc.latitude, lastLoc.longitude, safeZonesList)
+            } else {
+                Pair(false, "Acquiring GPS location...")
+            }
+        }
+    }
+    val isInSafeZone = safetyStatus.first
+
     var remainingCooldownMs by remember { mutableStateOf(0L) }
     LaunchedEffect(canonicalChildUid) {
         while (true) {
@@ -3304,23 +3332,57 @@ fun ChildSafetyView(
         // Live Interactive Safety Map matching Guardian Map Experience
         LiveSafetyMap(childName = childName, guardianName = guardianName, linkedChildCode = pairingCode, modifier = Modifier.fillMaxWidth(), isReadOnly = true)
 
-        Button(
-            onClick = onSendCheckIn,
-            enabled = !isCooldownActive,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = SafeGreen,
-                disabledContainerColor = SafeGreen.copy(alpha = 0.5f),
-                contentColor = Color.White,
-                disabledContentColor = Color.White.copy(alpha = 0.85f)
-            ),
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-            Text(
-                text = if (isCooldownActive) "I'm Safe (Cooldown: $cooldownCountdown)" else "I'm Safe (Send Check-In +10 Stars)",
-                fontWeight = FontWeight.Bold
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(
+                onClick = {
+                    if (!isInSafeZone) {
+                        Toast.makeText(context, "⚠️ You can only check-in (+10 Stars) when inside a designated Safe Zone!", Toast.LENGTH_LONG).show()
+                    } else {
+                        onSendCheckIn()
+                    }
+                },
+                enabled = !isCooldownActive && isInSafeZone,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isInSafeZone) SafeGreen else Color(0xFF94A3B8),
+                    disabledContainerColor = if (isCooldownActive) SafeGreen.copy(alpha = 0.5f) else Color(0xFFCBD5E1),
+                    contentColor = Color.White,
+                    disabledContentColor = if (isCooldownActive) Color.White.copy(alpha = 0.85f) else Color(0xFF64748B)
+                ),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(
+                    imageVector = if (isInSafeZone) Icons.Filled.CheckCircle else Icons.Filled.Shield,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text(
+                    text = when {
+                        isCooldownActive -> "I'm Safe (Cooldown: $cooldownCountdown)"
+                        !isInSafeZone -> "I'm Safe (In Safe Zone Only 🛡️)"
+                        else -> "I'm Safe (Send Check-In +10 Stars) 🟢"
+                    },
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (!isInSafeZone) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Filled.Info, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(15.dp))
+                    Text(
+                        text = if (safeZonesList.isEmpty()) "Guardian has not created any Safe Zones yet." else safetyStatus.second,
+                        fontSize = 11.sp,
+                        color = WarningAmber,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
         }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

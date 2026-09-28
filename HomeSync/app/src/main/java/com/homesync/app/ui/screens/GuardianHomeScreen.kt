@@ -58,6 +58,7 @@ import com.homesync.app.util.FirebaseSyncManager
 import com.homesync.app.util.NotificationManager
 import com.homesync.app.util.TaskProofImageManager
 import com.homesync.app.util.NotificationType
+import com.homesync.app.util.SafeZoneManager
 import com.homesync.app.util.ParentalControlManager
 import com.homesync.app.util.ProfileImageManager
 import com.homesync.app.util.QuestStatus
@@ -774,7 +775,16 @@ fun GuardianHomeScreen(
                 .background(SoftBg)
         ) {
             when (selectedTab) {
-                "Map" -> GuardianMapTabView(activeChildCode = activeChildCode, activeGuardianName = activeGuardianName)
+                "Map" -> GuardianMapTabView(
+                    activeChildCode = activeChildCode,
+                    activeGuardianName = activeGuardianName,
+                    effectiveChildren = effectiveChildren,
+                    selectedChildUid = selectedChildUid,
+                    onChildSelected = { newCode, newUid ->
+                        activeChildCode = newCode
+                        selectedChildUid = newUid
+                    }
+                )
                 "Tasks" -> GuardianTasksTabView(
                     activeChildCode = activeChildCode,
                     activeFamilyId = activeFamilyId,
@@ -3073,25 +3083,114 @@ private fun ChildDetailDialog(
 
 // Map Tab View
 @Composable
-fun GuardianMapTabView(activeChildCode: String, activeGuardianName: String = "Guardian") {
+fun GuardianMapTabView(
+    activeChildCode: String,
+    activeGuardianName: String = "Guardian",
+    effectiveChildren: List<GuardianChildItem> = emptyList(),
+    selectedChildUid: String = "",
+    onChildSelected: (String, String) -> Unit = { _, _ -> }
+) {
     val context = LocalContext.current
-    val savedChildren = remember(activeChildCode) { ChildIdManager.getAllSavedChildren(context) }
-    val isChildConnected = savedChildren.isNotEmpty() && activeChildCode.isNotBlank()
-    val cleanChildName = if (isChildConnected) ChildIdManager.getChildName(context, activeChildCode) else ""
-
-    val savedLoc = remember(activeChildCode, isChildConnected) {
-        if (isChildConnected) ChildIdManager.getChildLocation(context, activeChildCode) else null
+    val allSaved = remember { ChildIdManager.getAllSavedChildren(context) }
+    val remoteMembers = remember { FamilyManager.getCachedMembers(context) }
+    val approvedRemote = remember(remoteMembers) {
+        remoteMembers.filter { it.role == FamilyRole.CHILD && it.status == MemberStatus.APPROVED }
     }
-    val currentAddress = if (isChildConnected) (savedLoc?.third ?: "Live GPS Tracking Active") else "No Child Connected"
-    val latLngText = if (isChildConnected) (if (savedLoc != null) "Lat: %.4f, Lng: %.4f".format(savedLoc.first, savedLoc.second) else "Live GPS Connected") else "Pair a child device to monitor location"
 
-    var isChildOnline by remember(activeChildCode) { mutableStateOf(false) }
-    var childLastSeen by remember(activeChildCode) { mutableStateOf(0L) }
+    // Unified list of all connected children from both family & local storage
+    val connectedChildren: List<GuardianChildItem> = remember(effectiveChildren, allSaved, approvedRemote) {
+        if (effectiveChildren.isNotEmpty()) {
+            effectiveChildren
+        } else {
+            val list = mutableListOf<GuardianChildItem>()
+            for (m in approvedRemote) {
+                val code = m.childCode.ifBlank { m.userId }
+                list.add(GuardianChildItem(m.name.ifBlank { "Child" }, m.userId, code))
+            }
+            for (s in allSaved) {
+                if (list.none { it.childCode.equals(s.second, ignoreCase = true) || it.name.equals(s.first, ignoreCase = true) }) {
+                    list.add(GuardianChildItem(s.first, "", s.second))
+                }
+            }
+            list
+        }
+    }
 
-    DisposableEffect(activeChildCode) {
+    // Resolve the active target child
+    val currentChild = connectedChildren.find {
+        (activeChildCode.isNotBlank() && it.childCode.equals(activeChildCode, ignoreCase = true)) ||
+        (selectedChildUid.isNotBlank() && it.childUid.equals(selectedChildUid, ignoreCase = true)) ||
+        (activeChildCode.isNotBlank() && it.childUid.equals(activeChildCode, ignoreCase = true))
+    } ?: connectedChildren.firstOrNull()
+
+    val targetChildCode = currentChild?.childCode?.takeIf { it.isNotBlank() }
+        ?: currentChild?.childUid?.takeIf { it.isNotBlank() }
+        ?: activeChildCode
+
+    val targetChildName = currentChild?.name?.takeIf { it.isNotBlank() && it != "Child" }
+        ?: (if (targetChildCode.isNotBlank()) ChildIdManager.getChildName(context, targetChildCode).takeIf { it.isNotBlank() && it != "Child" } else null)
+        ?: currentChild?.name?.ifBlank { "Child" }
+        ?: "Child"
+
+    val cleanChildName = ChildIdManager.formatChildName(targetChildName)
+
+    val isChildConnected = connectedChildren.isNotEmpty() || (targetChildCode.isNotBlank() && targetChildCode != ChildIdManager.getDeviceChildId(context))
+
+    // Ensure child profile is also known locally
+    LaunchedEffect(targetChildCode, cleanChildName) {
+        if (targetChildCode.isNotBlank() && cleanChildName.isNotBlank() && cleanChildName != "Child") {
+            ChildIdManager.addSiblingProfile(context, cleanChildName, targetChildCode)
+        }
+    }
+
+    // Dynamic Live Location Listener for Target Child across RTDB & Firestore
+    var liveChildLoc by remember(targetChildCode) {
+        mutableStateOf(if (targetChildCode.isNotBlank()) ChildIdManager.getChildLocation(context, targetChildCode) else null)
+    }
+
+    DisposableEffect(targetChildCode) {
+        var cancelRtdb: com.google.firebase.database.ValueEventListener? = null
+        var cancelFs: com.google.firebase.firestore.ListenerRegistration? = null
+
+        if (targetChildCode.isNotBlank()) {
+            cancelRtdb = FirebaseRealtimeSyncManager.listenChildLocation(targetChildCode) { loc ->
+                liveChildLoc = Triple(loc.latitude, loc.longitude, loc.address)
+                ChildIdManager.saveChildLocation(context, targetChildCode, loc.latitude, loc.longitude, loc.address)
+            }
+            cancelFs = FirebaseSyncManager.listenChildLocation(targetChildCode) { cLoc ->
+                liveChildLoc = Triple(cLoc.latitude, cLoc.longitude, cLoc.address)
+                ChildIdManager.saveChildLocation(context, targetChildCode, cLoc.latitude, cLoc.longitude, cLoc.address)
+            }
+        }
+        onDispose {
+            cancelRtdb?.let { FirebaseRealtimeSyncManager.removeLocationListener(targetChildCode, it) }
+            cancelFs?.remove()
+        }
+    }
+
+    val currentAddress = if (isChildConnected) {
+        liveChildLoc?.third?.takeIf { it.isNotBlank() && !it.startsWith("Lat", ignoreCase = true) } ?: "Live GPS Tracking Active"
+    } else {
+        "No Child Connected"
+    }
+
+    val latLngText = if (isChildConnected) {
+        if (liveChildLoc != null && (liveChildLoc!!.first != 0.0 || liveChildLoc!!.second != 0.0)) {
+            "Lat: %.4f, Lng: %.4f".format(liveChildLoc!!.first, liveChildLoc!!.second)
+        } else {
+            "Live GPS Connected"
+        }
+    } else {
+        "Pair a child device to monitor location"
+    }
+
+    var isChildOnline by remember(targetChildCode) { mutableStateOf(false) }
+    var childLastSeen by remember(targetChildCode) { mutableStateOf(0L) }
+
+    DisposableEffect(targetChildCode) {
         var cancel: (() -> Unit)? = null
-        if (activeChildCode.isNotBlank()) {
-            cancel = FirebaseRealtimeSyncManager.listenChildProfile(context, activeChildCode) { prof ->
+        if (targetChildCode.isNotBlank()) {
+            cancel = FirebaseRealtimeSyncManager.listenChildProfile(context, targetChildCode) { prof ->
                 isChildOnline = prof.isConnected
                 childLastSeen = prof.lastActiveTime
             }
@@ -3101,15 +3200,53 @@ fun GuardianMapTabView(activeChildCode: String, activeGuardianName: String = "Gu
         }
     }
 
+    val userSafeZones = remember { SafeZoneManager.getSafeZones(context) }
+    val childSafetyStatus = remember(liveChildLoc, userSafeZones) {
+        if (liveChildLoc != null && (liveChildLoc!!.first != 0.0 || liveChildLoc!!.second != 0.0)) {
+            SafeZoneManager.checkChildSafetyStatus(liveChildLoc!!.first, liveChildLoc!!.second, userSafeZones)
+        } else {
+            Pair(true, "Inside Safe Zone")
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(bottom = 8.dp)
     ) {
+        // Child switcher chips if multiple children connected
+        if (connectedChildren.size > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                connectedChildren.forEach { child ->
+                    val isSelected = (currentChild?.childCode == child.childCode && child.childCode.isNotBlank()) ||
+                            (currentChild?.childUid == child.childUid && child.childUid.isNotBlank())
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onChildSelected(child.childCode, child.childUid) },
+                        label = { Text(child.name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Filled.ChildCare, contentDescription = null, modifier = Modifier.size(16.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFEFF6FF),
+                            selectedLabelColor = BrandBlue,
+                            selectedLeadingIconColor = BrandBlue
+                        )
+                    )
+                }
+            }
+        }
+
         LiveSafetyMap(
             childName = cleanChildName,
             guardianName = activeGuardianName,
-            linkedChildCode = if (isChildConnected) activeChildCode else "",
+            linkedChildCode = if (isChildConnected) targetChildCode else "",
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -3127,129 +3264,134 @@ fun GuardianMapTabView(activeChildCode: String, activeGuardianName: String = "Gu
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-            colors = CardDefaults.cardColors(containerColor = CardWhite),
-            shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-            border = BorderStroke(1.dp, BorderGrey)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                colors = CardDefaults.cardColors(containerColor = CardWhite),
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+                border = BorderStroke(1.dp, BorderGrey)
             ) {
-                if (isChildConnected) {
-                    // Header Row when Child is Connected
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(BrandBlue),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(cleanChildName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    if (isChildConnected) {
+                        // Header Row when Child is Connected
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(BrandBlue),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(cleanChildName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                }
+                                Column {
+                                    Text(cleanChildName, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    Text(
+                                        text = if (childSafetyStatus.first) "Inside Safe Zone" else "Outside Safe Zone",
+                                        fontSize = 12.sp,
+                                        color = if (childSafetyStatus.first) SafeGreen else Color(0xFFEF4444),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
+                            val now = System.currentTimeMillis()
+                            val isRecentlyActive = isChildOnline || (now - childLastSeen < 90_000L && childLastSeen > 0L)
+                            val statusText = if (isRecentlyActive) "Live Online" else if (childLastSeen > 0L) "Last seen ${((now - childLastSeen) / 60000).coerceAtLeast(1)}m ago" else "Live GPS Sync"
+                            val statusColor = if (isRecentlyActive) SafeGreen else BrandBlue
+                            val statusBg = if (isRecentlyActive) SafeGreenBg else Color(0xFFEFF6FF)
+
+                            Surface(shape = RoundedCornerShape(50), color = statusBg, border = BorderStroke(1.dp, statusColor.copy(alpha = 0.3f))) {
+                                Text(statusText, fontSize = 11.sp, color = statusColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                            }
+                        }
+
+                        HorizontalDivider(color = BorderGrey)
+
+                        // Guardian ("Me") Status Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(SafeGreen))
                             Column {
-                                Text(cleanChildName, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                Text("Inside Safe Zone", fontSize = 12.sp, color = SafeGreen, fontWeight = FontWeight.Bold)
+                                Text("👤 MY LOCATION (GUARDIAN)", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                                Text("Parent Device Active • Live Tracking", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                             }
                         }
-                        val now = System.currentTimeMillis()
-                        val isRecentlyActive = isChildOnline || (now - childLastSeen < 90_000L && childLastSeen > 0L)
-                        val statusText = if (isRecentlyActive) "Live Online" else if (childLastSeen > 0L) "Last seen ${((now - childLastSeen) / 60000).coerceAtLeast(1)}m ago" else "Live GPS Sync"
-                        val statusColor = if (isRecentlyActive) SafeGreen else BrandBlue
-                        val statusBg = if (isRecentlyActive) SafeGreenBg else Color(0xFFEFF6FF)
 
-                        Surface(shape = RoundedCornerShape(50), color = statusBg, border = BorderStroke(1.dp, statusColor.copy(alpha = 0.3f))) {
-                            Text(statusText, fontSize = 11.sp, color = statusColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-                        }
-                    }
-
-                    HorizontalDivider(color = BorderGrey)
-
-                    // Guardian ("Me") Status Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(SafeGreen))
-                        Column {
-                            Text("👤 MY LOCATION (GUARDIAN)", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
-                            Text("Parent Device Active • Live Tracking", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        }
-                    }
-
-                    // Child Location Address Card
-                    Surface(shape = RoundedCornerShape(12.dp), color = SoftBg, border = BorderStroke(1.dp, BorderGrey)) {
-                        Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(BrandBlue))
-                                Text("🧒 CHILD LOCATION ($cleanChildName)", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                        // Child Location Address Card
+                        Surface(shape = RoundedCornerShape(12.dp), color = SoftBg, border = BorderStroke(1.dp, BorderGrey)) {
+                            Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(BrandBlue))
+                                    Text("🧒 CHILD LOCATION ($cleanChildName)", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                                }
+                                Text(currentAddress, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text(latLngText, fontSize = 11.sp, color = BrandBlue, fontWeight = FontWeight.SemiBold)
                             }
-                            Text(currentAddress, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text(latLngText, fontSize = 11.sp, color = BrandBlue, fontWeight = FontWeight.SemiBold)
                         }
-                    }
-                } else {
-                    // Header Row when NO Child is Connected
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(TextSecondary.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.ChildCare, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+                    } else {
+                        // Header Row when NO Child is Connected
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(TextSecondary.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Filled.ChildCare, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+                                }
+                                Column {
+                                    Text("No Child Connected", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    Text("No active child device linked", fontSize = 12.sp, color = TextSecondary)
+                                }
                             }
+                            Surface(shape = RoundedCornerShape(50), color = WarningAmberBg, border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.3f))) {
+                                Text("Standby", fontSize = 11.sp, color = WarningAmber, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                            }
+                        }
+
+                        HorizontalDivider(color = BorderGrey)
+
+                        // Guardian ("Me") Status Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(SafeGreen))
                             Column {
-                                Text("No Child Connected", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                Text("No active child device linked", fontSize = 12.sp, color = TextSecondary)
+                                Text("👤 MY LOCATION (GUARDIAN)", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                                Text("Parent Device Active • GPS Ready", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                             }
                         }
-                        Surface(shape = RoundedCornerShape(50), color = WarningAmberBg, border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.3f))) {
-                            Text("Standby", fontSize = 11.sp, color = WarningAmber, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-                        }
-                    }
 
-                    HorizontalDivider(color = BorderGrey)
-
-                    // Guardian ("Me") Status Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(SafeGreen))
-                        Column {
-                            Text("👤 MY LOCATION (GUARDIAN)", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
-                            Text("Parent Device Active • GPS Ready", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        }
-                    }
-
-                    // Notice Card
-                    Surface(shape = RoundedCornerShape(12.dp), color = SoftBg, border = BorderStroke(1.dp, BorderGrey)) {
-                        Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("🧒 CHILD LOCATION", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
-                            Text("No Child Connected", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text("Pair a child device using their Unique ID to view real-time location and safe zones.", fontSize = 11.sp, color = TextSecondary)
+                        // Notice Card
+                        Surface(shape = RoundedCornerShape(12.dp), color = SoftBg, border = BorderStroke(1.dp, BorderGrey)) {
+                            Column(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("🧒 CHILD LOCATION", fontSize = 10.sp, color = TextSecondary, fontWeight = FontWeight.Bold)
+                                Text("No Child Connected", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text("Pair a child device using their Unique ID to view real-time location and safe zones.", fontSize = 11.sp, color = TextSecondary)
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
 }
 
 // Activity Tab View

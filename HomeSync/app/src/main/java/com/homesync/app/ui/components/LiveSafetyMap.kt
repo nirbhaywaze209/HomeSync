@@ -288,7 +288,7 @@ fun LiveSafetyMap(
                 lng = childLocation.longitude,
                 zoom = 16,
                 isSatellite = isSatellite,
-                childName = childName,
+                childName = effectiveChildName,
                 linkedCode = linkedChildCode,
                 safeZones = userSafeZones,
                 onWebViewCreated = { embeddedWebView = it },
@@ -691,7 +691,7 @@ fun LiveSafetyMap(
                     lng = childLocation.longitude,
                     zoom = 16,
                     isSatellite = isSatellite,
-                    childName = childName,
+                    childName = effectiveChildName,
                     linkedCode = linkedChildCode,
                     safeZones = userSafeZones,
                     onWebViewCreated = { fullscreenWebView = it },
@@ -1347,7 +1347,9 @@ private fun generateLeafletHtml(): String {
                 if (!map) return;
 
                 // Child Marker
-                if (!name || name === 'No Child Connected' || !code) {
+                const hasChildInfo = (name && name !== 'No Child Connected') || (code && code.length > 0);
+                const hasValidCoords = childLat && childLng && (childLat !== 0 || childLng !== 0);
+                if (!hasChildInfo || !hasValidCoords) {
                     if (childMarker) {
                         map.removeLayer(childMarker);
                         childMarker = null;
@@ -1361,7 +1363,7 @@ private fun generateLeafletHtml(): String {
                         iconAnchor: [16, 16]
                     });
 
-                    const displayName = name;
+                    const displayName = (name && name !== 'No Child Connected') ? name : 'Child';
                     if (!childMarker) {
                         childMarker = L.marker(childPos, { icon: childIcon }).addTo(map);
                         childMarker.bindTooltip('🧒 ' + displayName, {
