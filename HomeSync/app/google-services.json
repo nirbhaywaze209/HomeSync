@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "136088147782",
+    "project_id": "homesync-app-4cee2",
+    "storage_bucket": "homesync-app-4cee2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:136088147782:android:b4cf86fcf74f47a6d73747",
+        "android_client_info": {
+          "package_name": "com.homesync.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "136088147782-al9lsqtteg8dq8a3rm2t18t7vc7kadfk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.homesync.app",
+            "certificate_hash": "231e2912d520b2edfcd4a9502aa99be21f4e650b"
+          }
+        },
+        {
+          "client_id": "136088147782-3l40o3qe9tsh6len59j310f7ntjqkqnp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD0MsIcaqN3VGGuBeKFHQxBYJmuWXF6cHA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "136088147782-3l40o3qe9tsh6len59j310f7ntjqkqnp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

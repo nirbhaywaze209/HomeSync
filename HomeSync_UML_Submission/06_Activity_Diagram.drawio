@@ -1,0 +1,81 @@
+<mxfile host="app.diagrams.net" modified="2026-08-23T14:56:00.000Z" agent="HomeSync-UML-Generator/1.0" version="24.7.5">
+  <diagram id="diag-act" name="Activity Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Title -->
+        <mxCell id="title" value="HomeSync System - UML Activity Diagram (App Lifecycle &amp; Geofence Monitoring)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="260" y="20" width="650" height="30" as="geometry" />
+        </mxCell>
+        <!-- Start Node -->
+        <mxCell id="start" value="" style="ellipse;fillColor=#0f172a;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="545" y="70" width="30" height="30" as="geometry" />
+        </mxCell>
+        <!-- Decision: Check Session -->
+        <mxCell id="d_session" value="Active Session&#xa;Saved?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="495" y="130" width="130" height="70" as="geometry" />
+        </mxCell>
+        <!-- Show Login -->
+        <mxCell id="act_login" value="Display LoginScreen&#xa;(Guardian / Child / Connect)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="220" y="140" width="190" height="50" as="geometry" />
+        </mxCell>
+        <!-- Authenticate & Save Session -->
+        <mxCell id="act_save" value="Authenticate &amp; Save Session&#xa;(AuthManager.saveActiveSession)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="220" y="230" width="190" height="50" as="geometry" />
+        </mxCell>
+        <!-- Decision: Role -->
+        <mxCell id="d_role" value="User Role?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="505" y="230" width="110" height="60" as="geometry" />
+        </mxCell>
+        <!-- Child Branch -->
+        <mxCell id="act_child" value="Load ChildHomeScreen&#xa;(Show SOS Panic Button)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;" vertex="1" parent="1">
+          <mxGeometry x="720" y="235" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act_tx_gps" value="Periodically Stream GPS Telemetry&#xa;(FusedLocationProviderClient)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="710" y="320" width="200" height="50" as="geometry" />
+        </mxCell>
+        <!-- Guardian Branch -->
+        <mxCell id="act_guard" value="Load GuardianHomeScreen&#xa;(Initialize LiveSafetyMap)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="460" y="330" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act_tiles" value="Stream Real Map Raster Tiles&#xa;(CartoDB / Esri Tile Loader)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="460" y="410" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act_zones" value="Draw User Custom Safe Zones&#xa;(SafeZoneManager.getSafeZones)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="460" y="490" width="200" height="50" as="geometry" />
+        </mxCell>
+        <!-- Decision: Geofence Check -->
+        <mxCell id="d_fence" value="Distance &gt; Zone&#xa;Radius?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="495" y="570" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="act_alert" value="Emit Geofence Breach Alert&#xa;(Red Banner &amp; Warning Audio)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="580" width="190" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act_safe_status" value="Mark Status: Safe Inside Zone" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="250" y="580" width="180" height="50" as="geometry" />
+        </mxCell>
+        <!-- End Node -->
+        <mxCell id="end" value="" style="ellipse;html=1;shape=endState;fillColor=#0f172a;strokeColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="545" y="700" width="30" height="30" as="geometry" />
+        </mxCell>
+        <!-- Activity Edges -->
+        <mxCell id="e1" edge="1" parent="1" source="start" target="d_session" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e2" value="No" edge="1" parent="1" source="d_session" target="act_login" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e3" edge="1" parent="1" source="act_login" target="act_save" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4" edge="1" parent="1" source="act_save" target="d_role" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e5" value="Yes" edge="1" parent="1" source="d_session" target="d_role" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6" value="Child" edge="1" parent="1" source="d_role" target="act_child" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e7" edge="1" parent="1" source="act_child" target="act_tx_gps" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e8" value="Guardian" edge="1" parent="1" source="d_role" target="act_guard" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e9" edge="1" parent="1" source="act_guard" target="act_tiles" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e10" edge="1" parent="1" source="act_tiles" target="act_zones" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e11" edge="1" parent="1" source="act_zones" target="d_fence" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e12" value="Yes (Breach)" edge="1" parent="1" source="d_fence" target="act_alert" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e13" value="No (Safe)" edge="1" parent="1" source="d_fence" target="act_safe_status" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e14" edge="1" parent="1" source="act_safe_status" target="end" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e15" edge="1" parent="1" source="act_alert" target="end" style="endArrow=block;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

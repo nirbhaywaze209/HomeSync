@@ -1,0 +1,58 @@
+<mxfile host="app.diagrams.net" modified="2026-08-23T14:56:00.000Z" agent="HomeSync-UML-Generator/1.0" version="24.7.5">
+  <diagram id="diag-deploy" name="Deployment Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Title -->
+        <mxCell id="title" value="HomeSync System - UML Deployment Diagram (Physical Nodes &amp; Network)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="270" y="20" width="630" height="30" as="geometry" />
+        </mxCell>
+        <!-- Node 1: Guardian Android Device -->
+        <mxCell id="node_guard" value="&amp;lt;&amp;lt;device&amp;gt;&amp;gt;&#xa;Guardian Smartphone (Android 10+)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="50" y="80" width="460" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="art_guard_apk" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;HomeSync.apk&#xa;(Guardian Process)" style="shape=module;align=center;verticalAlign=middle;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="node_guard">
+          <mxGeometry x="40" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="art_guard_prefs" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;SharedPreferences&#xa;(Saved Session &amp; Zones)" style="shape=module;align=center;verticalAlign=middle;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=1;" vertex="1" parent="node_guard">
+          <mxGeometry x="240" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hw_screen" value="&amp;lt;&amp;lt;hardware&amp;gt;&amp;gt;&#xa;Capacitive Touch Display&#xa;(Two-Finger Stretch Pinch/Zoom)" style="shape=rect;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#fefce8;strokeColor=#ca8a04;fontStyle=1;" vertex="1" parent="node_guard">
+          <mxGeometry x="40" y="170" width="380" height="60" as="geometry" />
+        </mxCell>
+        <!-- Node 2: Child Android Device -->
+        <mxCell id="node_child" value="&amp;lt;&amp;lt;device&amp;gt;&amp;gt;&#xa;Child Smartphone (Android 8.0+)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="640" y="80" width="460" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="art_child_apk" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;HomeSync.apk&#xa;(Child Process)" style="shape=module;align=center;verticalAlign=middle;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="node_child">
+          <mxGeometry x="40" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="art_fused_loc" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;FusedLocationClient&#xa;(GNSS Location Provider)" style="shape=module;align=center;verticalAlign=middle;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="node_child">
+          <mxGeometry x="240" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hw_gps_chip" value="&amp;lt;&amp;lt;hardware&amp;gt;&amp;gt;&#xa;Internal GPS / GNSS Chipset&#xa;(L1 Band 1575.42 MHz Receiver)" style="shape=rect;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="node_child">
+          <mxGeometry x="40" y="170" width="380" height="60" as="geometry" />
+        </mxCell>
+        <!-- Node 3: GNSS Satellites -->
+        <mxCell id="node_sat" value="&amp;lt;&amp;lt;environment&amp;gt;&amp;gt;&#xa;GNSS Satellite Constellation (GPS / GLONASS / Galileo)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="640" y="440" width="460" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="sat_signal" value="Global Positioning Satellites (24+ Satellites Array)" style="shape=ellipse;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=1;" vertex="1" parent="node_sat">
+          <mxGeometry x="70" y="60" width="320" height="60" as="geometry" />
+        </mxCell>
+        <!-- Node 4: Tile Cloud CDN -->
+        <mxCell id="node_cloud" value="&amp;lt;&amp;lt;cloud node&amp;gt;&amp;gt;&#xa;GIS Map Tile Server CDN (CartoDB / Esri)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="50" y="440" width="460" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cloud_tiles" value="High-Bandwidth Retina 2x Raster Tiles&#xa;(HTTPS / TLS 1.3 Port 443)" style="shape=ellipse;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#dcfce7;strokeColor=#16a34a;fontStyle=1;" vertex="1" parent="node_cloud">
+          <mxGeometry x="70" y="60" width="320" height="60" as="geometry" />
+        </mxCell>
+        <!-- Network Connections -->
+        <mxCell id="net_1" value="HTTPS / TLS 1.3 (SOS Alerts &amp; Telemetry)" edge="1" parent="1" source="art_child_apk" target="art_guard_apk" style="endArrow=none;html=1;strokeWidth=2;strokeColor=#dc2626;" />
+        <mxCell id="net_2" value="HTTPS GET Requests (Port 443)" edge="1" parent="1" source="art_guard_apk" target="cloud_tiles" style="endArrow=none;html=1;strokeWidth=1.5;strokeColor=#0284c7;" />
+        <mxCell id="net_3" value="RF L-Band Satellite Signals (1575.42 MHz)" edge="1" parent="1" source="sat_signal" target="hw_gps_chip" style="endArrow=none;html=1;strokeWidth=1.5;strokeColor=#7c3aed;dashed=1;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

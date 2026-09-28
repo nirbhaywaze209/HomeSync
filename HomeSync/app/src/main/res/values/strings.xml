@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HomeSync</string>
+    <string name="welcome_message">Welcome to HomeSync</string>
+    <string name="google_sign_in">Continue with Google Account</string>
+</resources>

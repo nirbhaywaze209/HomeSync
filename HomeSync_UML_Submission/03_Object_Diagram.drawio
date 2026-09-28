@@ -1,0 +1,44 @@
+<mxfile host="app.diagrams.net" modified="2026-08-23T14:56:00.000Z" agent="HomeSync-UML-Generator/1.0" version="24.7.5">
+  <diagram id="diag-obj" name="Object Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Title -->
+        <mxCell id="title" value="HomeSync System - UML Object Diagram (Runtime Instance Snapshot)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="300" y="30" width="560" height="30" as="geometry" />
+        </mxCell>
+        <!-- Object: sarahSession -->
+        <mxCell id="obj_session" value="&lt;u&gt;sarahSession : ActiveSession&lt;/u&gt;&#xa;--&#xa;name = &quot;Sarah (Guardian)&quot;&#xa;email = &quot;sarah@homesync.app&quot;&#xa;age = 38&#xa;screen = &quot;GUARDIAN&quot;&#xa;childId = &quot;&quot;&#xa;linkedChildCode = &quot;HS-849201&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="260" height="150" as="geometry" />
+        </mxCell>
+        <!-- Object: nirbhayAccount -->
+        <mxCell id="obj_account" value="&lt;u&gt;nirbhayAccount : UserAccount&lt;/u&gt;&#xa;--&#xa;name = &quot;Nirbhay&quot;&#xa;email = &quot;nirbhay@homesync.app&quot;&#xa;password = &quot;••••••••&quot;&#xa;role = &quot;CHILD&quot;&#xa;childCode = &quot;HS-849201&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f0fdf4;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="440" y="100" width="260" height="140" as="geometry" />
+        </mxCell>
+        <!-- Object: mapCanvas -->
+        <mxCell id="obj_map" value="&lt;u&gt;mapCanvas : RealWorldMapRenderer&lt;/u&gt;&#xa;--&#xa;zoom = 15&#xa;scaleMultiplier = 1.0f&#xa;isSatellite = false&#xa;panOffsetX = 0.0f&#xa;panOffsetY = 0.0f" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="820" y="100" width="280" height="140" as="geometry" />
+        </mxCell>
+        <!-- Object: homeZone -->
+        <mxCell id="obj_home" value="&lt;u&gt;homeSafeZone : CustomSafeZone&lt;/u&gt;&#xa;--&#xa;id = &quot;zone_1724168000000&quot;&#xa;name = &quot;Home Residence&quot;&#xa;icon = &quot;🏡&quot;&#xa;latitude = 28.612900&#xa;longitude = 77.209500&#xa;radiusMeters = 300.0f&#xa;colorHex = &quot;#16A34A&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="220" y="340" width="270" height="170" as="geometry" />
+        </mxCell>
+        <!-- Object: schoolZone -->
+        <mxCell id="obj_school" value="&lt;u&gt;schoolSafeZone : CustomSafeZone&lt;/u&gt;&#xa;--&#xa;id = &quot;zone_1724168050000&quot;&#xa;name = &quot;Springdales School&quot;&#xa;icon = &quot;🏫&quot;&#xa;latitude = 28.618400&#xa;longitude = 77.214200&#xa;radiusMeters = 500.0f&#xa;colorHex = &quot;#0284C7&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="540" y="340" width="270" height="170" as="geometry" />
+        </mxCell>
+        <!-- Object: liveGps -->
+        <mxCell id="obj_gps" value="&lt;u&gt;liveGpsTelemetry : LatLng&lt;/u&gt;&#xa;--&#xa;latitude = 28.613120&#xa;longitude = 77.209680" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="340" width="230" height="90" as="geometry" />
+        </mxCell>
+        <!-- Object Links -->
+        <mxCell id="l1" value="monitors [HS-849201]" edge="1" parent="1" source="obj_session" target="obj_account" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l2" value="renders view" edge="1" parent="1" source="obj_session" target="obj_map" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l3" value="displays center beacon" edge="1" parent="1" source="obj_map" target="obj_gps" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l4" value="draws perimeter" edge="1" parent="1" source="obj_map" target="obj_home" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l5" value="draws perimeter" edge="1" parent="1" source="obj_map" target="obj_school" style="endArrow=none;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

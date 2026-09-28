@@ -1,0 +1,55 @@
+<mxfile host="app.diagrams.net" modified="2026-08-23T14:56:00.000Z" agent="HomeSync-UML-Generator/1.0" version="24.7.5">
+  <diagram id="diag-class" name="Class Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <!-- Title -->
+        <mxCell id="title" value="HomeSync System - UML Class Diagram" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="380" y="20" width="400" height="30" as="geometry" />
+        </mxCell>
+        <!-- MainActivity -->
+        <mxCell id="c_main" value="MainActivity&#xa;--&#xa;- currentScreen: String&#xa;- activeSession: ActiveSession&#xa;--&#xa;+ onCreate(savedInstanceState: Bundle): void" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f8fafc;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="280" height="110" as="geometry" />
+        </mxCell>
+        <!-- AuthManager -->
+        <mxCell id="c_auth" value="AuthManager&#xa;--&#xa;- PREFS_NAME: String = &quot;homesync_auth_accounts_prefs&quot;&#xa;- KEY_SESSION_ACTIVE: String&#xa;--&#xa;+ registerAccount(context: Context, account: UserAccount): Result&lt;UserAccount&gt;&#xa;+ authenticate(context: Context, email: String, pass: String): Result&lt;UserAccount&gt;&#xa;+ saveActiveSession(context: Context, session: ActiveSession): void&#xa;+ getActiveSession(context: Context): ActiveSession&#xa;+ clearActiveSession(context: Context): void&#xa;+ isEmailRegistered(context: Context, email: String): Boolean" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f0fdf4;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="370" y="70" width="440" height="180" as="geometry" />
+        </mxCell>
+        <!-- UserAccount & ActiveSession -->
+        <mxCell id="c_account" value="UserAccount&#xa;--&#xa;+ email: String&#xa;+ password: String&#xa;+ name: String&#xa;+ role: String&#xa;+ childCode: String" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="70" width="220" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c_session" value="ActiveSession&#xa;--&#xa;+ name: String&#xa;+ email: String&#xa;+ age: Int&#xa;+ screen: String&#xa;+ childId: String&#xa;+ linkedChildCode: String" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="220" width="220" height="140" as="geometry" />
+        </mxCell>
+        <!-- SafeZoneManager & CustomSafeZone -->
+        <mxCell id="c_safe" value="SafeZoneManager&#xa;--&#xa;- PREFS_NAME: String = &quot;homesync_safe_zones_prefs&quot;&#xa;- KEY_SAFE_ZONES: String = &quot;custom_safe_zones_json&quot;&#xa;--&#xa;+ getSafeZones(context: Context): List&lt;CustomSafeZone&gt;&#xa;+ addSafeZone(context: Context, zone: CustomSafeZone): void&#xa;+ deleteSafeZone(context: Context, zoneId: String): void&#xa;+ updateSafeZone(context: Context, updatedZone: CustomSafeZone): void" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="370" y="280" width="440" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="c_zone" value="CustomSafeZone&#xa;--&#xa;+ id: String&#xa;+ name: String&#xa;+ icon: String&#xa;+ latitude: Double&#xa;+ longitude: Double&#xa;+ radiusMeters: Float&#xa;+ colorHex: String" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="380" width="220" height="150" as="geometry" />
+        </mxCell>
+        <!-- LiveSafetyMap -->
+        <mxCell id="c_map" value="LiveSafetyMap&#xa;--&#xa;- isSatellite: Boolean&#xa;- isMaximized: Boolean&#xa;- mapZoom: Int&#xa;- continuousScale: Float&#xa;- userSafeZones: List&lt;CustomSafeZone&gt;&#xa;--&#xa;+ Render(): void&#xa;+ handlePinchZoom(zoomMultiplier: Float): void&#xa;+ onTransform(panX: Float, panY: Float, zoomChange: Float): void" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="290" height="180" as="geometry" />
+        </mxCell>
+        <!-- LocationHelper & RealTileMapLoader -->
+        <mxCell id="c_loc" value="LocationHelper&#xa;--&#xa;+ hasLocationPermission(context: Context): Boolean&#xa;+ fetchCurrentDeviceLocation(context: Context, onSuccess: Function, onFailure: Function): void&#xa;+ resolveAddress(context: Context, lat: Double, lng: Double): String&#xa;+ calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="40" y="460" width="490" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c_tile" value="RealTileMapLoader&#xa;--&#xa;- tileCache: LruCache&lt;String, Bitmap&gt;&#xa;--&#xa;+ getTileCoordinates(lat: Double, lng: Double, zoom: Int): Pair&lt;Int, Int&gt;&#xa;+ pixelOffsetToLatLng(baseLat: Double, baseLng: Double, zoom: Int, pxX: Float, pxY: Float): Pair&lt;Double, Double&gt;&#xa;+ loadTile(x: Int, y: Int, zoom: Int, isSatellite: Boolean): Bitmap" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="570" y="460" width="520" height="130" as="geometry" />
+        </mxCell>
+        <!-- Associations / Relationships -->
+        <mxCell id="r1" edge="1" parent="1" source="c_main" target="c_auth" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="r2" edge="1" parent="1" source="c_auth" target="c_account" style="endArrow=diamond;endFill=0;html=1;strokeWidth=1.5;" />
+        <mxCell id="r3" edge="1" parent="1" source="c_auth" target="c_session" style="endArrow=diamond;endFill=0;html=1;strokeWidth=1.5;" />
+        <mxCell id="r4" edge="1" parent="1" source="c_safe" target="c_zone" style="endArrow=diamond;endFill=0;html=1;strokeWidth=1.5;" />
+        <mxCell id="r5" edge="1" parent="1" source="c_map" target="c_safe" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="r6" edge="1" parent="1" source="c_map" target="c_loc" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="r7" edge="1" parent="1" source="c_map" target="c_tile" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

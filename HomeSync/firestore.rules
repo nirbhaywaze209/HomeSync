@@ -1,0 +1,188 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isGuardianOfFamily(familyId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/hs_families/$(familyId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/hs_families/$(familyId)/members/$(request.auth.uid)).data.role == 'GUARDIAN' &&
+        get(/databases/$(database)/documents/hs_families/$(familyId)/members/$(request.auth.uid)).data.status == 'APPROVED';
+    }
+
+    function isMemberOfFamily(familyId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/hs_families/$(familyId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/hs_families/$(familyId)/members/$(request.auth.uid)).data.status == 'APPROVED';
+    }
+
+    // hs_users: Canonical user identity & membership metadata
+    match /hs_users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isUser(userId);
+      allow update: if isUser(userId);
+
+      // Guardian approval updates joining child's membership or removes a family member
+      allow update: if isSignedIn() && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'familyId', 'membershipStatus', 'status', 'role', 'updatedAt', 'name', 'displayName', 'email', 'profilePictureUrl'
+        ]) && (
+          (
+            request.resource.data.familyId != null &&
+            isGuardianOfFamily(request.resource.data.familyId) &&
+            exists(/databases/$(database)/documents/hs_families/$(request.resource.data.familyId)/join_requests/$(userId))
+          ) ||
+          (
+            resource.data.familyId != null &&
+            isGuardianOfFamily(resource.data.familyId)
+          )
+        )
+      );
+      allow delete: if false;
+    }
+
+    // hs_families: Authoritative family metadata & subcollections
+    match /hs_families/{familyId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      // Bootstrap creation of new family
+      allow create: if isSignedIn() && (
+        request.resource.data.createdBy == request.auth.uid ||
+        request.resource.data.creatorUserId == request.auth.uid
+      );
+
+      // Existing Guardian or Creator may update family metadata
+      allow update: if isGuardianOfFamily(familyId) || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/hs_families/$(familyId)) &&
+        (
+          get(/databases/$(database)/documents/hs_families/$(familyId)).data.createdBy == request.auth.uid ||
+          get(/databases/$(database)/documents/hs_families/$(familyId)).data.creatorUserId == request.auth.uid
+        )
+      );
+
+      allow delete: if false;
+
+      match /members/{memberUserId} {
+        allow read: if isMemberOfFamily(familyId) || isUser(memberUserId);
+
+        // Bootstrap: authenticated user creates own GUARDIAN record for new family
+        allow create: if isUser(memberUserId) &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.role == 'GUARDIAN' &&
+          (
+            // Prior to batch commit, family document does not exist in the database yet
+            !exists(/databases/$(database)/documents/hs_families/$(familyId)) ||
+            // Or family document already exists in DB and was created by this user
+            (
+              exists(/databases/$(database)/documents/hs_families/$(familyId)) &&
+              (
+                get(/databases/$(database)/documents/hs_families/$(familyId)).data.createdBy == request.auth.uid ||
+                get(/databases/$(database)/documents/hs_families/$(familyId)).data.creatorUserId == request.auth.uid
+              )
+            )
+          );
+
+        // Guardian can add/approve/modify/remove members
+        allow create, update, delete: if isGuardianOfFamily(familyId);
+
+        // Member updating their own non-privileged details (presence/lastActive/profilePictureUrl)
+        allow update: if isUser(memberUserId) && isMemberOfFamily(familyId) && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'profilePictureUrl', 'lastActiveTime', 'isOnline', 'name', 'displayName', 'updatedAt'
+          ])
+        );
+
+        // Approved family member updating an approved Guardian's profilePictureUrl only
+        allow update: if isMemberOfFamily(familyId) &&
+          resource.data.role == 'GUARDIAN' &&
+          resource.data.status == 'APPROVED' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profilePictureUrl']);
+
+        // ========================================================
+        // AUTHORITATIVE FAMILY TASKS SUBCOLLECTION
+        // Path: hs_families/{familyId}/members/{childUserId}/tasks/{taskId}
+        // ========================================================
+        match /tasks/{taskId} {
+          // Read: Approved members of the family, Guardian, or Child reading own tasks
+          allow get, list: if isSignedIn() && (
+            isGuardianOfFamily(familyId) || isUser(memberUserId) || isMemberOfFamily(familyId)
+          );
+
+          // Create: Approved Guardian of the same family creating a task for a child in this family
+          allow create: if isGuardianOfFamily(familyId) &&
+            request.resource.data.familyId == familyId &&
+            request.resource.data.childUserId == memberUserId;
+
+          // Update:
+          // 1. Guardian approving, rejecting, or updating task fields
+          // 2. Child submitting proof (status SUBMITTED or PENDING under own UID)
+          allow update: if isGuardianOfFamily(familyId) || (
+            isUser(memberUserId) &&
+            (request.resource.data.status == 'SUBMITTED' || request.resource.data.status == 'PENDING')
+          );
+
+          // Delete: Only approved Guardian of the family can delete tasks
+          allow delete: if isGuardianOfFamily(familyId);
+        }
+        // Cloud rewards wallet
+        // Path: hs_families/{familyId}/members/{memberUserId}/rewards/{rewardDoc}
+        match /rewards/{rewardDoc} {
+          allow read: if isSignedIn() && (isGuardianOfFamily(familyId) || isUser(memberUserId) || isMemberOfFamily(familyId));
+          allow write: if isSignedIn() && (isGuardianOfFamily(familyId) || isUser(memberUserId));
+        }
+      }
+
+      match /safe_zones/{zoneId} {
+        allow read: if isSignedIn() && isMemberOfFamily(familyId);
+        allow write: if isSignedIn() && isGuardianOfFamily(familyId);
+      }
+
+      match /cooldowns/{cooldownId} {
+        allow read, write: if isSignedIn() && isMemberOfFamily(familyId);
+      }
+
+      match /join_requests/{requestUserId} {
+        allow get: if isUser(requestUserId);
+        allow read: if isGuardianOfFamily(familyId);
+        allow create, update: if isUser(requestUserId);
+        allow update: if isGuardianOfFamily(familyId);
+        allow delete: if isGuardianOfFamily(familyId) || isUser(requestUserId);
+      }
+    }
+
+    match /hs_notifications/{notifId} {
+      allow read, write: if isSignedIn();
+    }
+    match /hs_quests/{questId} {
+      allow read, write: if isSignedIn();
+    }
+    match /hs_locations/{locId} {
+      allow read, write: if isSignedIn();
+    }
+    match /hs_guardian_profiles/{code} {
+      allow read, write: if isSignedIn();
+    }
+    match /hs_child_profiles/{code} {
+      allow read, write: if isSignedIn();
+    }
+    match /hs_screentime/{id} {
+      allow read, write: if isSignedIn();
+      match /daily/{date} {
+        allow read, write: if isSignedIn();
+      }
+    }
+    match /hs_sos_events/{eventId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

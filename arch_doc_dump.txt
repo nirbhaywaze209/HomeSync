@@ -1,0 +1,571 @@
+[Normal] HomeSync Android Application
+[Normal] Comprehensive Technical Architecture, Database Design, & Business Model Documentation
+[Normal] Executive Summary
+[Normal] Project Overview: HomeSync (com.homesync.app) is an integrated, native Android application engineered for family safety, real-time child location tracking, customizable safe zone geofencing, remote screen time control, photo-verified chore completion, habit gamification, emergency SOS alerts, and adult household task management. The platform features dual user operating modes: a Guardian (Parent) Portal for administrative oversight and safety monitoring, and a Child Space designed with vibrant gamified elements, reward stars, avatar customization, and habit arcade minigames.
+[Normal] Architectural Summary: The application is constructed using a modern single-activity Jetpack Compose architecture (MainActivity.kt) powered by reactive State management, custom utility managers (util/*), and a serverless backend architecture utilizing Google Firebase (Authentication, Cloud Firestore, Realtime Database, and Cloud Storage). Map visualization is implemented through a hybrid engine combining native FusedLocationProviderClient continuous tracking with an embedded Leaflet.js interactive tile renderer inside an Android WebView component (LiveSafetyMap.kt).
+[Normal] Verification Scope: This document provides an exhaustive, ground-truth analysis of the actual HomeSync source code. Every table, workflow, data model, API endpoint, security assessment, and business canvas entry presented herein is directly verified from or strongly inferred from the codebase implementation.
+[Normal] 1. Architecture and Design
+[Normal] 1.1 System Overview
+[Normal] The HomeSync platform is structured as a client-side heavy, serverless-backed mobile architecture. The mobile application operates as a single activity (MainActivity.kt) hosting Compose UI screen composables that interact with localized singleton utility managers. Real-time multi-device synchronization is achieved through Firebase Firestore and Realtime Database listeners without requiring a dedicated custom backend application server.
+[Normal] Component Communication: High-Level System Component Diagram:
+[Normal] User Interface (Jetpack Compose / Material 3)
+       │
+       ▼
+HomeSyncViewModel & Reactive UI State (mutableStateOf / StateFlow)
+       │
+       ▼
+Utility Business Logic Layer (AuthManager, ChildQuestManager, ScreenTimeManager, etc.)
+       ├───────────────────────────────┐
+       ▼                               ▼
+Local Persistence Layer         Cloud Integration Layer
+(SharedPreferences & Files)     (Firebase Auth / Firestore / RTDB / Storage)
+                                       │
+                                       ▼
+                                External GIS Services
+                                (Google Maps & OSM Tile Servers)
+[Normal] 1.2 Technology Stack
+[Normal] 1.3 Architecture Pattern
+[Normal] The project strictly implements a Single-Activity Layered Architecture combined with Component-Based UI Rendering. The architectural pattern is verified through the following structural evidence:
+[List Bullet] Single-Activity Navigation Model: MainActivity.kt serves as the sole entry point, utilizing a top-level Compose currentScreen string state variable ('LOGIN', 'CHILD', 'CHILD_LOGIN', 'GUARDIAN', 'LOCKED') to swap screen composables dynamically without traditional Android Activity/Fragment stack transitions.
+[List Bullet] Decoupled Business Managers (Singletons): All domain logic is encapsulated inside dedicated Kotlin object singletons (AuthManager, ChildQuestManager, ScreenTimeManager, SafeZoneManager, NotificationManager, ParentalControlManager, ChildRewardsManager, AdultTaskManager).
+[List Bullet] Offline-First Fallback Design: All utility managers read and write directly to local SharedPreferences and internal storage first, subsequently invoking async cloud sync methods (FirebaseSyncManager) to ensure zero UI lag even in offline environments.
+[List Bullet] Event-Driven Cloud Synchronization: Firebase snapshot listeners (addSnapshotListener / addValueEventListener) push real-time updates directly back into UI Compose states via lambda callbacks.
+[Normal] 1.4 Frontend Architecture
+[Normal] The user interface is entirely declarative, organized into screens and reusable components.
+[Normal] 1.5 Backend Architecture
+[Normal] HomeSync relies on a serverless cloud architecture powered by Firebase SDKs integrated directly into client utility classes. The serverless backend components manage multi-device sync, data persistence, and notifications.
+[Normal] Client-Cloud Lifecycle: Request Lifecycle Flow:
+[Normal] User Action on UI (e.g. Submit Task Photo / Remote Pause Device)
+   └─► Utility Manager Updates Local SharedPreferences / File Storage
+   └─► FirebaseSyncManager / FirebaseRealtimeSyncManager Invokes Firestore/RTDB Set Payload
+   └─► Cloud Firestore / RTDB Persists Document Document ID = ChildCode
+   └─► Snapshot Listener Triggered on Peer Device (Guardian or Child)
+   └─► Peered Device Local Storage Updated & Compose State Re-composed
+[Normal] 1.6 API Architecture
+[Normal] As a serverless architecture, API interactions consist of structured operations between client utility managers and Firebase Cloud SDK endpoints or local Android system services. No generic or unverified REST endpoints exist.
+[Normal] 1.7 Authentication and Authorization
+[Normal] HomeSync incorporates a multi-tiered authentication framework combining local SharedPreferences credential persistence, anonymous Firebase authentication for database operations, and Google Identity token integration.
+[List Bullet] Account Registration & Password Hashing: AuthManager.kt registers Guardian accounts locally by storing user records in SharedPreferences under the key user_account_[clean_email]. Data is serialized in the format: password|name|role|childCode.
+[List Bullet] Active Session Persistence: Upon successful authentication, AuthManager.saveActiveSession() writes an ActiveSession object containing name, email, age, target screen ('GUARDIAN' or 'CHILD'), childId, and linkedChildCode. MainActivity.kt reads this session on cold startup, bypassing the login screen entirely.
+[List Bullet] Age-Based Auto-Routing: During login (MainActivity.kt L53-L64), user age is evaluated: if age is between 1 and 15, the app automatically generates/retrieves a Child ID and routes to the CHILD screen. If age > 15, the app routes to the GUARDIAN screen.
+[List Bullet] Child Pairing Code Authorization: Child devices generate a unique 6-character alphanumeric pairing code prefixed with 'HS-' (e.g. HS-849201) generated using SecureRandom (ChildIdManager.kt). Guardians input this code to establish a monitoring link.
+[Normal] 1.8 Application Workflow
+[Normal] The major operational workflows documented step-by-step from implementation:
+[Normal] Workflow 1: Guardian Registration & Child Device Pairing
+[List Bullet] 1. Guardian opens application; MainActivity checks AuthManager.getActiveSession(). If null, LoginScreen is displayed.
+[List Bullet] 2. Guardian selects 'Parent / Guardian' tab, enters Name, Email, Password, and optional Child Pairing Code, then taps 'Create Account'.
+[List Bullet] 3. AuthManager.registerAccount() validates inputs, serializes credentials, and persists record in SharedPreferences.
+[List Bullet] 4. App navigates to GuardianHomeScreen and saves active session locally.
+[List Bullet] 5. Child device launches, generates unique Child ID (e.g. HS-849201) via ChildIdManager.generateUniqueId(), and registers with Firebase Firestore/RTDB.
+[List Bullet] 6. Guardian enters HS-849201 in GuardianHomeScreen top bar; activeChildCode state binds both devices via cloud listeners.
+[Normal] Workflow 2: Live GPS Tracking & Geofence Safety Monitoring
+[List Bullet] 1. Child device obtains continuous GPS coordinates via LocationHelper.startContinuousLocationUpdates().
+[List Bullet] 2. Child device saves location locally (ChildIdManager.saveChildLocation) and broadcasts to Firestore/RTDB.
+[List Bullet] 3. GuardianHomeScreen runs a periodic coroutine polling ChildIdManager.getChildLocation().
+[List Bullet] 4. LiveSafetyMap.kt executes SafeZoneManager.checkChildSafetyStatus(), evaluating child LatLng against all user CustomSafeZone circles.
+[List Bullet] 5. If child is outside all safe zone radiuses, UI displays a prominent Warning banner ('⚠️ Outside Safe Zones') and sends a SAFE_ZONE_EVENT notification.
+[Normal] Workflow 3: Quest Creation, Photo Proof Upload & Parent Verification
+[List Bullet] 1. Guardian creates a quest ('Complete Math Homework', 30 Stars, 'Due 7:00 PM') in GuardianHomeScreen.
+[List Bullet] 2. ChildQuestManager.addCustomQuest() saves quest with status PENDING and syncs to Firestore hs_quests collection.
+[List Bullet] 3. Child device receives quest update via listenQuestsFromCloud snapshot listener.
+[List Bullet] 4. Child taps 'Upload Photo Proof', captures/selects image; TaskProofImageManager compresses image to Base64/JPEG and sets status to SUBMITTED.
+[List Bullet] 5. NotificationManager triggers status bar pop-up alert for Guardian ('Task Photo Verification Required 📷').
+[List Bullet] 6. Guardian reviews photo proof in GuardianHomeScreen and taps 'Approve (+30 Stars)'.
+[List Bullet] 7. ChildQuestManager.verifyQuest() sets status to APPROVED, and ChildRewardsManager.addRewards() credits 30 Stars and 30 Coins to child profile.
+[Normal] Workflow 4: Remote Screen Time Countdown & Lockout Enforcement
+[List Bullet] 1. ChildHomeScreen runs a 1-second interval LaunchedEffect loop decrementing ScreenTimeManager remaining seconds.
+[List Bullet] 2. ScreenTimeManager.saveRemainingSeconds() updates local SharedPreferences and global_device_lock flag.
+[List Bullet] 3. When remaining seconds reach 0 or Guardian taps 'Pause Device' (setDeviceLocked(true)), isDeviceLocked returns true.
+[List Bullet] 4. MainActivity composition intercepts state and immediately renders LockoutScreen.kt, blocking app usage.
+[List Bullet] 5. Guardian taps '+30m' or 'Unlock Device' from GuardianHomeScreen; cloud listener updates ScreenTimeManager state, automatically dismissing LockoutScreen on child device.
+[Normal] Workflow 5: Emergency SOS Panic & Safe Check-in Alert
+[List Bullet] 1. Child taps red 'SOS Emergency' button in ChildHomeScreen.
+[List Bullet] 2. App fetches current precise GPS location via LocationHelper.fetchCurrentDeviceLocation().
+[List Bullet] 3. NotificationManager.addNotification() constructs SystemNotification with type SOS_EMERGENCY and targetRole 'GUARDIAN'.
+[List Bullet] 4. Notification is published to Firestore hs_notifications collection and triggers high-priority system sound/vibration on Guardian device.
+[Normal] 1.9 Design Principles
+[Normal] 1.10 Security Architecture
+[Normal] Analysis of security mechanisms currently implemented vs. identified security gaps:
+[Normal] Implemented Security Mechanisms
+[List Bullet] Anonymous Firebase Authentication: AuthManager enforces anonymous sign-in (signInAnonymously) before allowing database reads/writes.
+[List Bullet] Runtime Permission Guards: LocationHelper explicitly checks ACCESS_FINE_LOCATION and ACCESS_COARSE_LOCATION permissions before requesting GPS updates.
+[List Bullet] Ambiguity-Free Pairing Codes: ChildIdManager generates 6-character codes using CHARACTERS string '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ', intentionally excluding confusing characters 'I' and 'O'.
+[List Bullet] Internal Private Storage: Profile pictures and task proof bitmaps are saved in Context.MODE_PRIVATE internal app storage (context.filesDir), isolating files from third-party apps.
+[Normal] 1.11 Scalability and Performance
+[List Bullet] Tile Cache Memory Management: RealTileMapLoader.kt implements an LruCache sized at 25% of max available JVM runtime memory (minimum 32MB) to prevent OutOfMemory errors during heavy map panning.
+[List Bullet] Image Compression Pipeline: TaskProofImageManager and FirebaseStorageHelper scale photos to max 800px-1600px dimensions and compress to 65%-90% quality JPEGs prior to Base64 encoding or cloud upload.
+[List Bullet] SharedPreferences Scalability Limit: Storing full quest arrays as serialized JSON strings inside SharedPreferences works well for small dataset sizes (<100 items), but will experience IO bottlenecks as historical activity logs grow. Migration to Room DB is recommended.
+[Normal] 1.12 Architecture Diagram
+[Normal] Complete visual architecture representation of the HomeSync system:
+[Normal] ┌───────────────────────────────────────────────────────────────────────────┐
+│                          PRESENTATION LAYER                               │
+│  [LoginScreen]  [GuardianHomeScreen]  [ChildHomeScreen]  [LockoutScreen]  │
+│  [LiveSafetyMap Component]  [AdultTasksCard]  [RewardsShopDialog]        │
+└────────────────────────────────────┬──────────────────────────────────────┘
+                                     │ (Compose State / Callbacks)
+┌────────────────────────────────────▼──────────────────────────────────────┐
+│                           BUSINESS LOGIC LAYER                            │
+│  HomeSyncViewModel  │  AuthManager  │  ChildQuestManager  │  ScreenTime   │
+│  SafeZoneManager    │  ChildRewards │  ParentalControl    │  AdultTaskManager│
+└─────────────────┬──────────────────────────────────────┬──────────────────┘
+                  │                                      │
+┌─────────────────▼───────────────────┐  ┌───────────────▼──────────────────┐
+│       LOCAL STORAGE LAYER           │  │       CLOUD BACKEND LAYER        │
+│ SharedPreferences (homesync_*_prefs)│  │ Firebase Auth (Anonymous/Google) │
+│ Internal Storage (filesDir PNGs)    │  │ Cloud Firestore (hs_quests, etc) │
+│ Android NotificationChannel         │  │ Realtime DB (hs_*_profiles)      │
+└─────────────────────────────────────┘  │ Firebase Storage (hs_*_photos)   │
+                                         └────────────────┬─────────────────┘
+                                                          │
+                                         ┌────────────────▼─────────────────┐
+                                         │     EXTERNAL GIS SERVICES        │
+                                         │ Google Location (FusedClient)    │
+                                         │ Tile Mirrors (Google/OSM)        │
+                                         └──────────────────────────────────┘
+[Normal] 2. Business Model
+[Normal] 2.1 Business Overview
+[Normal] HomeSync solves a growing modern family dilemma: balancing child safety, device screen time control, and household chore completion without creating constant friction between parents and children. By combining real-time GPS tracking with a gamified quest/reward ecosystem and habit arcade minigames, HomeSync transforms daily routine enforcement into an engaging, rewarding experience for children while granting parents total peace of mind.
+[Normal] 2.2 Target Users
+[Normal] 2.3 Value Proposition
+[List Bullet] For Parents: Automated peace of mind through real-time geofenced location alerts, remote screen time control, and visual proof before awarding chore allowances.
+[List Bullet] For Children: Gamified daily routines where completing real-world tasks (cleaning room, doing homework) earns virtual currency, level titles, and playable arcade game access.
+[List Bullet] For the Family: Elimination of daily arguments over screen time and chores through transparent, automated rules and shared progress tracking.
+[Normal] 2.4 Business Process
+[Normal] Family Onboarding → Account Registration & Device Pairing (HS-XXXXXX)
+       │
+       ▼
+Daily Routine Loop → Parent assigns Quests & Screen Time Allowance
+       │
+       ▼
+Child Execution → Child completes Quest & Uploads Photo Proof
+       │
+       ▼
+Verification & Reward → Parent reviews photo, approves quest → Stars/Coins credited
+       │
+       ▼
+Safety & Boundary Monitoring → Continuous GPS tracking, Geofence evaluation, Screen Time Countdown
+[Normal] 2.5 Revenue Model
+[Normal] Potential Future Business Models
+[List Bullet] B2C Freemium SaaS: Free core safety map and 3 daily quests; Premium subscription ($4.99/mo) unlocking unlimited safe zones, HD photo proof storage, advanced parental web filters, and exclusive avatar packs.
+[List Bullet] Family Plan License: Annual family license ($49.99/yr) covering up to 5 child devices with multi-guardian administrative access.
+[List Bullet] Hardware / IoT Integration: Partnering with GPS smartwatches or educational tablet vendors pre-installing HomeSync Child Space.
+[Normal] 2.6 Business Model Canvas
+[Normal] 2.7 Customer Journey
+[Normal] Stage 1: Discovery → Parent downloads HomeSync from app store seeking screen time or safety control.
+[Normal] Stage 2: Pairing → Parent creates Guardian account, installs HomeSync on child device, enters pairing code (HS-849201).
+[Normal] Stage 3: Setup → Parent draws custom Safe Zones (Home, School) on LiveSafetyMap and creates initial daily quests.
+[Normal] Stage 4: Daily Engagement → Child completes homework, uploads photo proof, earns Stars, unlocks RoboPup avatar, and plays Habit Blitz.
+[Normal] Stage 5: Retention → Parent receives instant safe arrival check-ins and photo proofs, embedding HomeSync into daily family life.
+[Normal] 2.8 Competitive / Business Advantages
+[List Bullet] Dual-Role Single Binary: Both Parent and Child experiences exist within a single Android APK, dynamically routed based on user age and login role.
+[List Bullet] Photo Proof Chore Verification: Unlike generic screen time blockers, HomeSync requires visual proof before awarding rewards, preventing false claims.
+[List Bullet] Hybrid GIS Engine: Leaflet.js integration allows seamless switching between Google Maps satellite views and OpenStreetMap street layers with zero API key dependency.
+[Normal] 2.9 Business Limitations
+[List Bullet] Lack of Billing Infrastructure: No Google Play Billing SDK integrated; monetization cannot occur without code updates.
+[List Bullet] Foreground Location Reliance: GPS updates rely on active app lifecycle; background service worker for 24/7 background location tracking is limited.
+[List Bullet] Single Device Local State: SharedPreferences storage locks user data to the specific physical device unless synced via Firebase.
+[Normal] 2.10 Future Business Opportunities
+[List Bullet] Short-Term: Integrate Google Play In-App Billing for premium avatar purchases.
+[List Bullet] Medium-Term: Implement AI-assisted photo proof verification (automatically detecting cleaned room or completed math worksheet).
+[List Bullet] Long-Term: Expand to cross-platform iOS (SwiftUI) and web dashboard for school administrators.
+[Normal] 3. Database and Data Storage Details
+[Normal] 3.1 Database Overview
+[Normal] HomeSync utilizes a hybrid multi-tier storage architecture combining local Android key-value/JSON SharedPreferences, internal file storage, Cloud Firestore document collections, Firebase Realtime Database nodes, and Firebase Cloud Storage buckets.
+[Normal] 3.2 Database Tables / Collections Summary
+[Normal] 3.3 Detailed Table Documentation
+[Normal] Table 3.3.1: User Accounts Table (homesync_auth_accounts_prefs)
+[Normal] Purpose: Stores registered user credentials, user names, assigned roles, and persistent session state. Defined in AuthManager.kt.
+[Normal] Table 3.3.2: Child Profiles & Location Table (homesync_children_prefs)
+[Normal] Purpose: Maps child names to 6-character pairing codes and stores latest GPS location coordinates. Defined in ChildIdManager.kt.
+[Normal] Table 3.3.3: Quests & Chores Table (homesync_child_quests_prefs_v3)
+[Normal] Purpose: Stores daily child quests, due times, star values, photo proof local URIs, and status. Defined in ChildQuestManager.kt.
+[Normal] Table 3.3.4: Child Rewards & Gamification Table (homesync_child_rewards_prefs)
+[Normal] Purpose: Tracks child points, coins, level title, equipped avatar, and arcade high scores. Defined in ChildRewardsManager.kt.
+[Normal] Table 3.3.5: Adult Household Tasks Table (homesync_adult_tasks_prefs)
+[Normal] Purpose: Stores parent household checklist items, priority levels, and category groupings. Defined in AdultTaskManager.kt.
+[Normal] Table 3.3.6: System Notifications Table (homesync_notifications_prefs_v1)
+[Normal] Purpose: Stores real-time alert notifications broadcast between parent and child devices. Defined in NotificationManager.kt.
+[Normal] Table 3.3.7: Parental Control Rules Table (homesync_parental_control_prefs)
+[Normal] Purpose: Stores restriction rules, curfew hours, school mode, and web filter preferences. Defined in ParentalControlManager.kt.
+[Normal] Table 3.3.8: Screen Time & Lockout Table (homesync_screentime_prefs)
+[Normal] Purpose: Controls device screen time countdown timer, remaining seconds, and global lock state. Defined in ScreenTimeManager.kt.
+[Normal] Table 3.3.9: Custom Safe Zones Table (homesync_user_safezones_prefs)
+[Normal] Purpose: Stores parent-created geofence safe zones. Defined in SafeZoneManager.kt.
+[Normal] 3.4 Data Relationships
+[Normal] 3.5 Entity Relationship Diagram
+[Normal] ┌─────────────────────────┐        1 : N        ┌─────────────────────────┐
+│       UserAccount       ├────────────────────►│    Child Profile        │
+│  - email (PK)           │                     │  - childCode (PK)       │
+│  - password             │                     │  - name                 │
+│  - name                 │                     │  - loc_lat, loc_lng     │
+│  - childCode (FK)       │                     └────┬───────────────┬────┘
+└─────────────────────────┘                          │ 1:N           │ 1:1
+                                                     │               │
+            ┌────────────────────────────────────────▼──┐   ┌────────▼────────────────┐
+            │               ChildQuest                  │   │      ChildRewards       │
+            │  - id (PK)                                │   │  - childId (PK/FK)      │
+            │  - childId (FK)                           │   │  - points, coins        │
+            │  - title, rewardStars                     │   │  - equipped_avatar      │
+            │  - status (PENDING/SUBMITTED/APPROVED)    │   └─────────────────────────┘
+            │  - photoProofUri                          │
+            └───────────────────────────────────────────┘
+[Normal] 3.6 Data Flow
+[Normal] Data movement across application layers for primary features:
+[List Bullet] Quest Photo Proof Submission: Camera/Gallery -> Bitmaps -> TaskProofImageManager -> Compressed Base64 String -> SharedPreferences & Cloud Firestore -> Snapshot Listener -> Guardian UI Image Composable.
+[List Bullet] GPS Location Update: FusedLocationProviderClient -> LatLng -> LocationHelper -> ChildIdManager (SharedPreferences) -> Firestore/RTDB -> Guardian LiveSafetyMap Leaflet WebView.
+[Normal] 3.7 Data Stored in Database
+[List Bullet] User Data: Parent names, child names, ages, emails, roles.
+[List Bullet] Authentication Data: Passwords (serialized plaintext pipeline format), active session state tokens.
+[List Bullet] Application Data: Quests, chore titles, star rewards, avatar unlocks, adult tasks, safe zones.
+[List Bullet] Location Data: Real-time GPS latitude/longitude, geocoded address strings, update timestamps.
+[List Bullet] Media Files: Compressed PNG profile pictures, JPEG task proof photos.
+[Normal] 3.8 Sensitive Data Handling
+[Normal] The system processes sensitive user data including email addresses, passwords, physical GPS location coordinates, and photos of children/home environments.
+[Normal] 3.9 Data Security
+[Normal] 3.10 Database Indexing
+[Normal] In SharedPreferences, lookups execute in O(1) time via key hash maps. In Cloud Firestore, default single-field automatic indexes support queries on childCode and timestamp fields.
+[Normal] 3.11 Data Validation
+[List Bullet] Email Format: Cleaned and converted to lowercase (cleanEmail()).
+[List Bullet] Pairing Codes: Formatted to uppercase 6-character string matching regex [0-9A-Z]{6}.
+[List Bullet] Screen Time: Clamped to minimum 0 seconds (seconds.coerceAtLeast(0)).
+[Normal] 3.12 CRUD Operations Matrix
+[Normal] 3.13 Database Backup / Recovery
+[Normal] Backup and recovery functionality is not identifiable from the current project implementation beyond automatic multi-region data replication provided natively by Google Cloud Firestore.
+[Normal] 4. System Modules
+[Normal] 5. Functional Requirements
+[Normal] Functional requirements derived directly from verified source code implementation:
+[Normal] 6. Non-Functional Requirements
+[List Bullet] Performance: Map tile rendering must load within 3 seconds over 4G/Wi-Fi; local SharedPreferences reads execute synchronously under 10ms.
+[List Bullet] Security: Location permissions guarded at runtime; internal storage kept private via Context.MODE_PRIVATE.
+[List Bullet] Availability: System operates offline using local SharedPreferences; syncs automatically when network reconnects.
+[List Bullet] Reliability: LRU tile caching prevents memory leaks and OutOfMemory crashes during map panning.
+[List Bullet] Usability: High-contrast child interface with large emoji icons; clean corporate slate theme for Guardian portal.
+[Normal] 7. System Limitations
+[Normal] Identified limitations based strictly on current source code inspection:
+[List Bullet] Plaintext Password Storage: AuthManager stores passwords in unencrypted SharedPreferences strings.
+[List Bullet] No Integrated Payment Gateway: Monetization features require manual code updates to integrate Billing SDK.
+[List Bullet] Foreground Location Reliance: GPS updates rely on active app lifecycle; background location service worker is limited.
+[List Bullet] WebView Map Fallback: Interactive maps depend on Android WebView availability and CDN tile servers.
+[Normal] 8. Future Enhancements
+[Normal] Short-Term (1 - 3 Months)
+[List Bullet] Migrate SharedPreferences storage to Android Room Database for structured SQL queries.
+[List Bullet] Implement EncryptedSharedPreferences for password hashing and credential security.
+[Normal] Medium-Term (3 - 6 Months)
+[List Bullet] Implement a background Foreground Service Worker for 24/7 background GPS tracking.
+[List Bullet] Integrate Google Play In-App Billing for avatar packs and premium subscriptions.
+[Normal] Long-Term (6 - 12 Months)
+[List Bullet] Incorporate ML Kit on-device image recognition for automated chore proof verification.
+[List Bullet] Develop a cross-platform iOS version using Kotlin Multiplatform or SwiftUI.
+[Normal] 9. Technical Recommendations
+[Normal] Final Project Assessment
+[Normal] Overall Technical Evaluation: HomeSync (com.homesync.app) is an exceptionally well-structured, feature-complete native Android application. The codebase demonstrates high technical quality, utilizing modern Jetpack Compose UI patterns, reactive state management, comprehensive singleton business managers, dual-sync Firebase cloud architecture, and a hybrid Leaflet GIS map engine.
+[Normal] Production Readiness: The application successfully satisfies all core functional requirements for child location monitoring, geofence safe zones, remote screen time control, photo-verified chore tracking, habit gamification, and emergency safety alerts. Addressing the identified security recommendations (password hashing, Firestore security rules) and database migration (Room DB) will elevate HomeSync to full commercial readiness.
+
+--- TABLE ---
+Document Attribute | Details / Value
+Application Name | HomeSync (Package: com.homesync.app)
+Target Platform | Android (SDK 34 Target, SDK 26 Minimum)
+Programming Language | Kotlin 1.9.22 (JVM Target 1.8)
+UI Framework | Jetpack Compose (BOM 2024.02.01, Material 3)
+Cloud Services | Firebase Auth, Cloud Firestore, Realtime DB, Cloud Storage
+GIS & Location | Google Play Services Location / Maps, Leaflet.js WebView
+Analysis Date | September 2026
+Document Version | 1.0 (Final Comprehensive System Baseline)
+Author Role | Senior Software Architect & Reviewer
+
+--- TABLE ---
+System Layer | Primary Responsibilities | Core Source Files / Modules
+Frontend / UI Layer | Render reactive UI screens (Login, Guardian, Child, Lockout, Arcade); manage user input forms; capture camera/gallery photo proofs; handle gesture pinch-zoom map interactions. | MainActivity.kt, ui/screens/*, ui/components/*
+State & ViewModel Layer | Provide Compose state containers for preview mocking, daily missions, screen time meters, and child activity tracking. | ui/viewmodel/HomeSyncViewModel.kt
+Utility / Business Logic Layer | Execute local CRUD operations, compute geofence distances, manage screen time countdowns, process star/coin rewards, serialize JSON payloads. | util/AuthManager.kt, util/ChildQuestManager.kt, util/ScreenTimeManager.kt, util/SafeZoneManager.kt
+Local Storage Layer | Persist user accounts, active sessions, quest status, parental rules, custom safe zones, notifications, and cached PNG bitmaps locally on device. | SharedPreferences (homesync_*_prefs), Internal Storage (filesDir)
+Cloud Backend Layer (Firebase) | Provide anonymous auth, real-time multi-device database listeners, HD photo storage, cross-device notification fan-out, and profile syncing. | FirebaseSyncManager.kt, FirebaseRealtimeSyncManager.kt, FirebaseStorageHelper.kt
+External Services Layer | Acquire precise device location coordinates via FusedLocationProviderClient; fetch real-world map tiles from Google Maps & OpenStreetMap mirrors. | LocationHelper.kt, RealTileMapLoader.kt, Leaflet.js in LiveSafetyMap.kt
+
+--- TABLE ---
+Layer | Technology | Version | Purpose | Source Verification
+Language | Kotlin | 1.9.22 | Primary Android development language | build.gradle.kts
+UI Framework | Jetpack Compose | BOM 2024.02.01 | Declarative UI rendering & Material 3 components | app/build.gradle.kts
+Build Tool | Gradle (KTS) | 8.2.2 (Android Plugin) | Project build automation and dependency resolution | build.gradle.kts
+Android SDK | Android SDK (Compile/Target) | API 34 (Android 14) | Target framework execution level | app/build.gradle.kts
+Min SDK | Android SDK (Minimum) | API 26 (Android 8.0) | Minimum supported device version | app/build.gradle.kts
+Authentication | Firebase Auth / Google Identity | 22.3.1 / 1.2.2 | Anonymous authentication & Google Sign-In credentials | AuthManager.kt
+Cloud Database | Cloud Firestore | 24.10.3 | Document store for quests, notifications, profiles, activities | FirebaseSyncManager.kt
+Realtime Database | Firebase Realtime DB | 20.3.1 | Ultra-low-latency dual-sync profile state updates | FirebaseRealtimeSyncManager.kt
+Cloud Storage | Firebase Storage | 20.3.0 | Public HTTPS cloud storage for HD profile & proof JPEG photos | FirebaseStorageHelper.kt
+Location SDK | Google Play Services Location | 21.2.0 | FusedLocationProviderClient continuous tracking & Geocoder | LocationHelper.kt
+Maps Model | Google Play Services Maps | 18.2.0 | LatLng model structures & map utility data types | LocationHelper.kt
+GIS Tile Engine | Leaflet.js in WebView | 1.9.4 (CDN loaded) | Interactive map rendering, circles, markers, tile layer mirror fallbacks | LiveSafetyMap.kt
+Local Storage | SharedPreferences / Files | Android System API | Offline-first key-value, JSON array, and PNG file storage | util/* Managers
+
+--- TABLE ---
+Component / Screen | Responsibility | Main Functions | Dependencies / Imports
+MainActivity.kt | App entry point, active session recovery, top-level screen state routing, lockout interception | onCreate(), AuthManager.getActiveSession(), ScreenTimeManager.isDeviceLocked() | AuthManager, ChildIdManager, ScreenTimeManager, Screen Composables
+LoginScreen.kt | Parent & Child authentication portal, tabbed sign-in/sign-up, demo account seeding, Google Sign-In | LoginScreen(), Google Identity CredentialManager, password reset dialog | AuthManager, ChildIdManager, Firebase Auth
+GuardianHomeScreen.kt | Parent administrative dashboard: live safety map, quest proof review, screen time controls, parental rules, adult tasks | GuardianHomeScreen(), Child profile listener, Quest proof verification dialog, bonus time buttons | LiveSafetyMap, ChildQuestManager, ScreenTimeManager, ParentalControlManager, NotificationManager
+ChildHomeScreen.kt | Child interactive hub: quest list, photo proof submission, star/coin balance, avatar shop, SOS panic, safe check-in | ChildHomeScreen(), Camera/Gallery proof launcher, SOS trigger button, check-in button | ChildQuestManager, ChildRewardsManager, LocationHelper, NotificationManager, ProfileImageManager
+LockoutScreen.kt | Full-screen lock screen displayed when screen time expires or parent remotely locks device | LockoutScreen(), Starry canvas animation, live unlock listener, emergency call button | ScreenTimeManager, LockoutTheme
+HabitArcadeGame.kt | Gamified arcade containing 2 minigames (Habit Blitz tap game & Memory Match card game) to earn bonus points/coins | HabitArcadeGame(), Blitz tap handler, Memory match logic, high score submission | ChildRewardsManager
+LiveSafetyMap.kt | Interactive WebView map rendering child/guardian positions, custom safe zone circles, and distance alerts | LiveSafetyMap(), Leaflet HTML string generator, WebMessageBridge, Add/Edit SafeZone Dialog | SafeZoneManager, LocationHelper, ChildIdManager, WebView
+AdultTasksCard.kt | Parent household chore checklist component embedded inside Guardian dashboard | AdultTasksCard(), Add task dialog, priority badge renderer, completion toggle | AdultTaskManager
+RewardsShopDialog.kt | Dialog composable displaying available avatars, coin costs, unlock criteria, and equip state | RewardsShopDialog(), Avatar purchase handler, equipped state manager | ChildRewardsManager
+
+--- TABLE ---
+Backend Utility Module | Responsibility | Key Operations & Logic | Cloud / Local Targets
+FirebaseSyncManager.kt | Cloud Firestore sync engine | syncQuestsToCloud(), listenQuestsFromCloud(), sendNotificationToCloud(), syncChildProfileToCloud() | Firestore Collections (hs_quests, hs_notifications, hs_child_profiles)
+FirebaseRealtimeSyncManager.kt | Ultra-fast Realtime DB sync engine | syncGuardianProfile(), listenGuardianProfile(), syncChildProfile(), listenChildProfile() | RTDB Nodes (hs_guardian_profiles, hs_child_profiles)
+FirebaseStorageHelper.kt | HD Photo upload & URL resolver | uploadProfilePhoto(), uploadTaskProofPhoto(), downloadAndCachePhoto(), bitmapToHdBytes() | Firebase Storage Buckets (hs_profile_pics/, hs_task_proofs/)
+AuthManager.kt | User account authentication & active session persistence | registerAccount(), authenticate(), saveActiveSession(), updatePassword(), getGuardianName() | SharedPreferences (homesync_auth_accounts_prefs)
+ChildIdManager.kt | Unique child pairing ID generator & profile manager | generateUniqueId() ['HS-XXXXXX'], getOrCreateChildId(), formatChildName(), saveChildLocation() | SharedPreferences (homesync_children_prefs)
+ScreenTimeManager.kt | Screen time countdown & lockout rule engine | getRemainingSeconds(), saveRemainingSeconds(), isDeviceLocked(), setDeviceLocked(), resetToSixHours() | SharedPreferences (homesync_screentime_prefs)
+SafeZoneManager.kt | Geofence safe zone calculator & alert engine | getSafeZones(), addSafeZone(), calculateDistanceMeters(), checkChildSafetyStatus() | SharedPreferences (homesync_user_safezones_prefs)
+NotificationManager.kt | System status bar heads-up alert engine | addNotification(), showSystemStatusBarNotification(), markAllAsRead(), getUnreadCount() | Android NotificationChannel (homesync_heads_up_alerts_v2)
+
+--- TABLE ---
+Operation / SDK Method | Cloud Endpoint / Target Path | Purpose | Auth Required | Request Data Format | Response / Output
+ensureAnonymousAuth() | Firebase Auth / signInAnonymously() | Authenticate app instance anonymously for Firestore read/write access | None (Initial) | None | FirebaseUser UID
+syncQuestsToCloud() | Firestore: hs_quests/{childCode} | Upload full quest list and Base64 proof image payload | Anonymous / User | Map<String, Any> + JSON Array | Void (Task Success/Failure)
+listenQuestsFromCloud() | Firestore: hs_quests/{childCode} | Subscribe to real-time quest status & proof updates | Anonymous / User | Document Snapshot Listener | List<ChildQuest>
+sendNotificationToCloud() | Firestore: hs_notifications/{notifId} | Publish system notification (SOS, Check-in, Task Proof) | Anonymous / User | SystemNotification Map | Void (Task Success/Failure)
+listenNotificationsFromCloud() | Firestore: hs_notifications | Subscribe to incoming real-time notifications | Anonymous / User | Collection Snapshot Listener | SystemNotification Objects
+syncChildProfileToCloud() | Firestore: hs_child_profiles/{childCode} | Sync child star rewards, level, streak, and avatar | Anonymous / User | ChildProfileCloudData Map | Void
+syncGuardianProfile() | RTDB: hs_guardian_profiles/{childCode} | Dual-sync Guardian name, pairing code, and profile picture | Anonymous / User | Map (name, childCode, avatarBase64) | Void
+uploadProfilePhoto() | Firebase Storage: hs_profile_pics/{key}_hd.jpg | Upload HD JPEG profile picture to cloud storage | Anonymous / User | Byte Array (JPEG 90% quality) | Public HTTPS Download URL
+uploadTaskProofPhoto() | Firebase Storage: hs_task_proofs/{questId}_hd.jpg | Upload HD JPEG task proof photo to cloud storage | Anonymous / User | Byte Array (JPEG 90% quality) | Public HTTPS Download URL
+fetchCurrentDeviceLocation() | Android FusedLocationProviderClient | Acquire latest precise GPS coordinates of device | ACCESS_FINE_LOCATION | Priority HIGH_ACCURACY Request | LatLng + Address String
+loadTile() | Google Maps / OSM Tile Servers (mt0.google.com) | Stream web map tiles for street and satellite map view | None | HTTP GET tile X, Y, Z | Bitmap (Image Byte Stream)
+
+--- TABLE ---
+User Role | Authentication Method | Accessible Modules & Screens | System Restrictions
+Guardian (Parent) | Email/Password or Google Sign-In (AuthManager.kt) | GuardianHomeScreen (Live Map, Geofencing, Quest Verification, Remote Lock, Screen Time Adjust, Parental Rules, Adult Tasks) | Cannot access Child Arcade Game directly; restricted from deleting system default chores without confirmation.
+Monitored Child | Age Auto-Routing (1-15) or Child Pairing Code Entry | ChildHomeScreen (Daily Quests, Photo Proof Upload, Reward Shop, SOS Button, Safe Check-in, Arcade Minigames) | Cannot alter parental control rules, modify screen time allowance, approve own quests, or delete safe zones.
+Locked Out Child | Device Lock Interception (ScreenTimeManager) | LockoutScreen (Starry lock screen, emergency parent phone call button) | All main child features completely blocked until remaining time > 0 or parent grants remote unlock.
+
+--- TABLE ---
+Design Principle | Implementation Evidence in Source Code
+Separation of Concerns | Strict isolation between UI Composables (ui/screens), State Containers (HomeSyncViewModel), Business Managers (util/*), and Cloud Data Services (FirebaseSyncManager).
+Reusability & Componentization | Modular UI components (LiveSafetyMap, AdultTasksCard, RewardsShopDialog) reusable across screens with parameter-driven callbacks.
+Offline-First Resilience | All core operations execute against local SharedPreferences first; Firebase cloud sync errors are swallowed gracefully without crashing app.
+Reactive State Driving UI | Compose state primitives (mutableStateOf, remember, LaunchedEffect) drive UI re-composition automatically upon data changes.
+Encapsulation | Managers expose clean public API methods while keeping SharedPreferences keys, JSON parsing, and string formatting private.
+
+--- TABLE ---
+[SECURITY GAPS & TECHNICAL RECOMMENDATIONS] 1. Plaintext Password Storage: AuthManager.registerAccount() stores user passwords in plain text inside SharedPreferences using pipeline string formatting (password|name|role|childCode). Recommendation: Implement PBKDF2/Bcrypt hashing or Jetpack EncryptedSharedPreferences.  2. Open Firestore Security Rules: Cloud Firestore collections (hs_quests, hs_notifications) allow document writes based on childCode without checking authenticated UID matching. Recommendation: Implement Firestore Security Rules validating request.auth.uid.  3. Cleartext Network Traffic Enabled: AndroidManifest.xml contains android:usesCleartextTraffic="true" to support http map tiles. Recommendation: Restrict cleartext traffic to specific map tile domains using Network Security Config.
+
+--- TABLE ---
+User Type | Description | Key Requirements | Main Activities in Application
+Parents / Guardians | Working or busy parents seeking reliable child location tracking and automated chore verification. | Real-time GPS visibility, custom geofence alerts, remote device lock, chore proof verification. | View live map, set safe zones, approve/reject quest photo proofs, manage screen time allowances, track adult household tasks.
+Monitored Children (Ages 6-15) | Younger children requiring structure for daily routines and screen time boundaries. | Engaging visual interface, clear task goals, instant positive reinforcement, emergency SOS access. | Check daily quests, upload photo proofs, earn stars/coins, unlock avatar characters, play habit arcade games, send safe check-ins.
+Older Dependents (Ages 16+) | Older teenagers using family coordination features without strict kid gamification. | Direct account login, streamlined task tracking, family safety check-ins. | Complete adult household tasks, check in with parents, manage daily personal errands.
+
+--- TABLE ---
+[REVENUE MODEL IMPLEMENTATION STATUS] The current source code implementation does not provide sufficient evidence of an implemented revenue model (no payment SDKs, billing libraries, or subscription paywalls are present in app/build.gradle.kts).
+
+--- TABLE ---
+Canvas Building Block | Analysis & Implementation Status
+Key Partners | [Inferred] Map tile providers (Google Maps, OpenStreetMap), Firebase Cloud Infrastructure, Android OS Ecosystem.
+Key Activities | [Implemented] Real-time location tracking, safe zone geofencing, quest proof verification, screen time lockout enforcement, habit arcade gaming.
+Key Resources | [Implemented] Jetpack Compose UI codebase, Firebase Firestore/RTDB infrastructure, Leaflet GIS engine, local utility algorithms.
+Value Propositions | [Implemented] Integrated family safety + chore gamification + screen time management in a single native app.
+Customer Relationships | [Implemented] Self-service pairing via 6-character codes; automated status bar alerts; transparent reward feedback loops.
+Channels | [Inferred] Google Play Store distribution, organic family referrals, school parent networks.
+Customer Segments | [Implemented] Parents/Guardians seeking child monitoring; children aged 6-15 needing routine motivation.
+Cost Structure | [Inferred] Firebase Cloud usage fees (Firestore reads/writes, Storage bandwidth), Google Maps API quota costs, developer maintenance.
+Revenue Streams | [Proposed Future] Monthly/Annual Premium Subscriptions, Avatar/Theme microtransactions, Family Enterprise Licensing.
+
+--- TABLE ---
+Storage Entity / Table Name | Type / Provider | Primary Key / Document ID | Main Purpose
+homesync_auth_accounts_prefs | SharedPreferences | user_account_[email] | Stores registered user accounts, passwords, roles, and active session state
+homesync_children_prefs | SharedPreferences | child_id_[name] | Stores child name to unique pairing ID mappings and latest GPS location
+homesync_child_quests_prefs_v3 | SharedPreferences | quests_v3_[childId] | Stores local array of child quests, photo proof URIs, and approval statuses
+homesync_child_rewards_prefs | SharedPreferences | points_[childId] | Stores child points, coins, unlocked avatar IDs, and arcade high scores
+homesync_adult_tasks_prefs | SharedPreferences | adult_tasks_json | Stores parent household tasks, categories, priorities, and completion status
+homesync_notifications_prefs_v1 | SharedPreferences | saved_notifications_list | Stores system notifications array (SOS, Check-ins, Task proof submissions)
+homesync_parental_control_prefs | SharedPreferences | curfew_enabled_[childId] | Stores curfew times, school mode, web filter levels, and app blocking rules
+homesync_screentime_prefs | SharedPreferences | remaining_seconds_[childId] | Stores daily screen time allowance, remaining seconds countdown, and lockout flags
+homesync_user_safezones_prefs | SharedPreferences | custom_safe_zones_list | Stores custom safe zone objects (name, icon, LatLng, radiusMeters, color)
+hs_quests | Cloud Firestore Collection | Document ID = childCode | Syncs full quest list and Base64 photo proof payload across devices
+hs_notifications | Cloud Firestore Collection | Document ID = notificationId | Broadcasts real-time notifications to paired parent/child devices
+hs_child_profiles | Cloud Firestore / RTDB Node | Document/Node ID = childCode | Syncs child profile details, level label, star balance, and avatar Base64
+hs_guardian_profiles | Cloud Firestore / RTDB Node | Document/Node ID = childCode | Syncs Guardian profile name, pairing code, email, and avatar Base64
+hs_activities | Cloud Firestore Collection | Document ID = activityId | Logs child activity feed entries for historical parent review
+hs_profile_pics / hs_task_proofs | Firebase Cloud Storage | File Path = {key}_hd.jpg | Stores high-definition JPEG images for profile photos and task proofs
+Internal App Filesystem | Android Filesdir Storage | File Path = {key}_profile_pic.png | Stores cached PNG bitmaps locally on device storage
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+user_account_[clean_email] | String (Pipeline Format) | No | None | Primary Key | Serialized string format: password|name|role|childCode
+last_logged_in_email | String | Yes | null | Index Key | Email of the last user who authenticated on this device
+session_is_active | Boolean | No | false | State Key | Flag indicating if an active user session is currently logged in
+session_user_name | String | No | 'User' | State Key | Full display name of the currently active session user
+session_user_email | String | No | '' | State Key | Email address of the currently active session user
+session_user_age | Int | No | 0 | State Key | User age; drives auto-routing to Child (1-15) or Guardian (>15)
+session_target_screen | String | No | 'GUARDIAN' | State Key | Target UI screen identifier ('GUARDIAN' or 'CHILD')
+session_child_id | String | Yes | '' | State Key | Unique Child ID associated with active child session
+session_linked_code | String | Yes | '' | Foreign Key | 6-character child pairing code linked to active Guardian
+saved_guardian_name | String | Yes | 'Sarah' | State Key | Persistent Guardian name across app screens
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+child_id_[clean_name] | String | No | None | Primary Key | Maps lowercase clean child name to unique code (e.g. 'aarav' -> 'HS-849201')
+child_name_[clean_code] | String | No | None | Index Key | Maps unique code to clean human child display name (e.g. 'HS-849201' -> 'Aarav')
+current_device_child_id | String | No | '' | State Key | Active Child ID assigned to this physical mobile device
+has_initialized_children | Boolean | No | false | Flag Key | Indicates if default initial child profiles (Aarav, Maya) were seeded
+loc_lat_[clean_code] | String (Double) | Yes | null | Data Key | Latest recorded GPS latitude coordinate for child device
+loc_lng_[clean_code] | String (Double) | Yes | null | Data Key | Latest recorded GPS longitude coordinate for child device
+loc_addr_[clean_code] | String | Yes | 'Live Location' | Data Key | Reverse geocoded street/city address string
+loc_time_[clean_code] | Long | Yes | null | Data Key | Timestamp (epoch ms) of latest GPS location update
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+quests_v3_[childId] | String (JSON Array) | No | Default Quests | Primary Key | Serialized JSON array containing ChildQuest objects
+JSON: id | String | No | UUID String | Item Key | Unique quest ID (e.g. 'quest_1', 'quest_1725781200')
+JSON: title | String | No | '' | Field | Descriptive title of the chore (e.g. 'Complete Math Homework')
+JSON: rewardStars | Int | No | 20 | Field | Number of reward stars/coins awarded upon parent approval
+JSON: dueTime | String | No | '' | Field | Due time label (e.g. 'Due 7:00 PM')
+JSON: status | String (Enum) | No | 'PENDING' | Field | Quest status: 'PENDING', 'SUBMITTED', 'APPROVED', 'REJECTED'
+JSON: photoProofLabel | String | Yes | '' | Field | Label describing submitted photo proof
+JSON: photoProofUri | String | Yes | '' | Field | Local file path or HTTPS URL to task proof photo
+JSON: submittedAt | Long | Yes | null | Field | Timestamp (epoch ms) when child submitted proof
+JSON: verifiedAt | Long | Yes | null | Field | Timestamp (epoch ms) when parent approved or rejected quest
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+points_[childId] | Int | No | 250 | Data Key | Total cumulative experience points earned by child
+coins_[childId] | Int | No | 150 | Data Key | Available virtual coin balance for purchasing avatars
+equipped_avatar_[childId] | String | No | 'hero_star' | Data Key | ID of currently equipped avatar character
+unlocked_avatars_[childId] | Set<String> | No | ['hero_star'] | Data Key | Set of avatar IDs unlocked by child
+high_score_[childId] | Int | No | 0 | Data Key | Highest score achieved in Habit Blitz arcade game
+memory_best_[childId] | Int | No | 0 | Data Key | Best time (seconds) in Memory Match game
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+adult_tasks_json | String (JSON Array) | No | Default Tasks | Primary Key | Serialized JSON array of AdultTask objects
+JSON: id | String | No | UUID String | Item Key | Unique adult task ID (e.g. 'def_1', 'custom_a1b2c3d4')
+JSON: title | String | No | '' | Field | Task title (e.g. '🛒 Grocery Shopping & Restock Essentials')
+JSON: category | String (Enum) | No | 'HOUSEHOLD' | Field | Category: 'HOUSEHOLD', 'PARENTING', 'UTILITIES', 'WELLNESS', 'ERRANDS'
+JSON: priority | String (Enum) | No | 'MEDIUM' | Field | Task priority: 'HIGH' (Urgent), 'MEDIUM', 'LOW' (Normal)
+JSON: isCompleted | Boolean | No | false | Field | Task completion check status
+JSON: timeEstimate | String | Yes | '' | Field | Estimated completion duration (e.g. '45m')
+JSON: isCustom | Boolean | No | false | Field | Flag indicating user-created custom task vs. system default
+JSON: createdAt | Long | No | Epoch ms | Field | Timestamp when task was created
+JSON: completedAt | Long | Yes | null | Field | Timestamp when task was checked as completed
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+saved_notifications_list | String (JSON Array) | No | Default Notifs | Primary Key | Serialized JSON array of SystemNotification objects
+JSON: id | String | No | UUID String | Item Key | Unique notification ID
+JSON: title | String | No | 'Notification' | Field | Notification header title (e.g. 'Task Photo Submitted')
+JSON: message | String | No | '' | Field | Detailed notification message body
+JSON: timestamp | Long | No | Epoch ms | Field | Timestamp when notification was generated
+JSON: type | String (Enum) | No | 'CHILD_SAFE_CHECKIN' | Field | Type: 'TASK_PHOTO_SUBMITTED', 'CHILD_SAFE_CHECKIN', 'SOS_EMERGENCY', 'SAFE_ZONE_EVENT'
+JSON: childName | String | No | 'Child' | Field | Name of child associated with notification
+JSON: childCode | String | Yes | '' | Foreign Key | Child pairing code associated with notification
+JSON: isRead | Boolean | No | false | Field | Read status flag
+JSON: actionData | String | Yes | '' | Field | Quest ID or payload metadata associated with notification
+JSON: targetRole | String | No | 'GUARDIAN' | Field | Target role required to display alert ('GUARDIAN' or 'CHILD')
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+curfew_enabled_[childId] | Boolean | No | true | Rule Key | Master toggle for night curfew lockout enforcement
+curfew_start_[childId] | String | No | '09:00 PM' | Rule Key | Start time for night curfew lock
+curfew_end_[childId] | String | No | '06:00 AM' | Rule Key | End time for night curfew unlock
+school_mode_[childId] | Boolean | No | true | Rule Key | School hours distraction-free focus mode toggle
+block_social_[childId] | Boolean | No | true | Rule Key | Block social media applications flag
+block_games_[childId] | Boolean | No | false | Rule Key | Block gaming applications flag
+block_browser_[childId] | Boolean | No | true | Rule Key | Block web browser access flag
+web_filter_[childId] | String | No | 'Strict Kid-Safe' | Rule Key | Content filtering strictness level
+daily_allowance_[childId] | Int | No | 4 | Rule Key | Max daily screen time allowance in hours
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+total_allowance_[childId] | Int | No | 21600 (6h) | Data Key | Total daily screen time allowance in seconds
+remaining_seconds_[childId] | Int | No | 21600 (6h) | Data Key | Remaining usable screen time seconds
+is_locked_[childId] | Boolean | No | false | State Key | Lockout flag for specific child ID
+global_device_lock | Boolean | No | false | State Key | Global lock flag enforcing LockoutScreen on device
+
+--- TABLE ---
+Field Name | Data Type | Nullable | Default Value | Key Type | Description
+custom_safe_zones_list | String (JSON Array) | No | [] (Empty) | Primary Key | Serialized JSON array of CustomSafeZone objects
+JSON: id | String | No | Epoch ms | Item Key | Unique safe zone ID
+JSON: name | String | No | 'Safe Zone' | Field | User-assigned zone label (e.g. 'Home', 'Lincoln School')
+JSON: icon | String | No | '🏡' | Field | Emoji icon marker representation
+JSON: latitude | Double | No | 0.0 | Field | Center GPS latitude coordinate of safe zone circle
+JSON: longitude | Double | No | 0.0 | Field | Center GPS longitude coordinate of safe zone circle
+JSON: radiusMeters | Float | No | 300.0 | Field | Geofence perimeter radius distance in meters
+JSON: colorHex | String | No | '#0284C7' | Field | Color hex string used for map circle rendering
+
+--- TABLE ---
+Parent Entity | Child Entity | Relationship | Foreign Key / Linking Field | Description
+UserAccount (AuthManager) | ActiveSession (AuthManager) | 1 : 1 | email | Active session references logged-in user account email.
+UserAccount (AuthManager) | Child Profile (ChildIdManager) | 1 : N | childCode | Guardian account links to one or more child pairing codes.
+Child Profile (ChildIdManager) | Quests (ChildQuestManager) | 1 : N | childId / childCode | Each child profile maintains an isolated list of daily quests.
+Child Profile (ChildIdManager) | Rewards (ChildRewardsManager) | 1 : 1 | childId | Each child profile tracks individual points, coins, and avatars.
+Child Profile (ChildIdManager) | ScreenTime (ScreenTimeManager) | 1 : 1 | childId | Screen time allowance and remaining seconds bound to child ID.
+Child Profile (ChildIdManager) | Notifications (NotificationManager) | 1 : N | childCode | Notifications reference specific child pairing code.
+
+--- TABLE ---
+[SENSITIVE DATA PRIVACY ANALYSIS] Sensitive data (GPS coordinates, child names, photos) is handled locally in Context.MODE_PRIVATE storage and transmitted over HTTPS to Firebase. However, passwords are stored unencrypted in SharedPreferences, representing a privacy risk that should be remediated prior to commercial deployment.
+
+--- TABLE ---
+Security Area | Currently Implemented in Project | Recommended Improvement
+Password Storage | Plaintext pipeline serialization in SharedPreferences | Hash passwords using PBKDF2/Bcrypt or use EncryptedSharedPreferences
+Database Access | Anonymous Firebase Authentication | Implement UID-based Cloud Firestore & RTDB Security Rules
+File Uploads | Private internal app storage + Base64 compression | Implement Firebase Storage Security Rules restricting access to paired parents
+Network Transport | HTTPS for Firebase SDKs & Tile Servers | Enforce Network Security Config and disable cleartext traffic in Manifest
+
+--- TABLE ---
+Entity | Create | Read | Update | Delete | Implementation Source Location
+User Account | registerAccount() | authenticate() | updatePassword() | clearActiveSession() | AuthManager.kt
+Child Profile | addChildProfile() | getChildName() | saveLinkedChildId() | unpairChild() / clearAllChildren() | ChildIdManager.kt
+Child Quest | addCustomQuest() | getQuests() | submitProof() / verifyQuest() | deleteQuest() | ChildQuestManager.kt
+Child Rewards | addRewards() | getStats() | unlockAndEquipAvatar() | None | ChildRewardsManager.kt
+Adult Task | addTask() | getTasks() | toggleTask() | deleteTask() / resetAllTasks() | AdultTaskManager.kt
+Safe Zone | addSafeZone() | getSafeZones() | updateSafeZone() | deleteSafeZone() | SafeZoneManager.kt
+Notification | addNotification() | getNotifications() | markAsRead() / markAllAsRead() | clearAll() | NotificationManager.kt
+
+--- TABLE ---
+Module Name | Purpose | Target Users | Main Functions | Related Storage Entities
+Authentication & Session Module | Manages login, account creation, demo accounts, and active session recovery | Guardian & Child | registerAccount(), authenticate(), getActiveSession() | homesync_auth_accounts_prefs
+Live Safety Map & Geofencing Module | Displays real-time child location, map tiles, and custom safe zone perimeter alerts | Guardian | LiveSafetyMap(), checkChildSafetyStatus(), addSafeZone() | homesync_user_safezones_prefs, homesync_children_prefs
+Remote Screen Time & Lockout Module | Monitors screen time countdown and enforces lockout screens when allowance expires | Guardian & Child | getRemainingSeconds(), setDeviceLocked(), LockoutScreen() | homesync_screentime_prefs
+Daily Quests & Photo Proof Module | Manages chore creation, photo proof uploads, and parent approval workflows | Guardian & Child | getQuests(), submitProof(), verifyQuest() | homesync_child_quests_prefs_v3, hs_quests
+Rewards Shop & Avatar Module | Tracks earned stars/coins and allows children to unlock and equip custom avatar characters | Child | getStats(), unlockAndEquipAvatar(), RewardsShopDialog() | homesync_child_rewards_prefs
+Habit Arcade Minigame Module | Provides Habit Blitz and Memory Match minigames to reward positive habits | Child | HabitArcadeGame(), Blitz tap handler, Memory match handler | homesync_child_rewards_prefs
+Adult Task Manager Module | Provides checklist for parent household, utility, and parenting chores | Guardian | AdultTasksCard(), addTask(), toggleTask() | homesync_adult_tasks_prefs
+Cloud Realtime Sync Module | Synchronizes profiles, notifications, and activities across paired devices via Firebase | Guardian & Child | syncQuestsToCloud(), listenGuardianProfile(), uploadProfilePhoto() | hs_quests, hs_notifications, hs_child_profiles
+
+--- TABLE ---
+Requirement ID | Functional Requirement Description | Module | User Role | Priority
+FR-001 | App shall support account registration with email, password, name, and role. | Auth | Guardian | High
+FR-002 | App shall persist active sessions across application restarts. | Auth | All | High
+FR-003 | App shall auto-route users aged 1-15 to Child Space and >15 to Guardian Portal. | Auth | All | High
+FR-004 | App shall generate a unique 6-character pairing code (HS-XXXXXX) per child device. | Child ID | Child | High
+FR-005 | App shall allow Guardians to link child devices by entering pairing codes. | Auth | Guardian | High
+FR-006 | App shall track continuous GPS location of child devices using FusedLocation. | Map | Child | High
+FR-007 | App shall render an interactive Leaflet WebView map showing child and guardian markers. | Map | Guardian | High
+FR-008 | App shall allow Guardians to add, edit, and delete custom Safe Zones with radius. | Map | Guardian | High
+FR-009 | App shall evaluate child position against safe zones and display warning banners. | Map | Guardian | High
+FR-010 | App shall display a daily screen time allowance countdown timer. | ScreenTime | Child | High
+FR-011 | App shall block access via LockoutScreen when screen time expires or parent locks. | ScreenTime | Child | High
+FR-012 | App shall allow Guardians to grant remote bonus screen time (+15m, +30m, +1h). | ScreenTime | Guardian | High
+FR-013 | App shall allow Guardians to create custom daily quests with star reward values. | Quests | Guardian | High
+FR-014 | App shall allow Children to capture or upload camera/gallery photo proof for quests. | Quests | Child | High
+FR-015 | App shall send heads-up notifications to Guardian when quest proof is submitted. | Notifs | Guardian | High
+FR-016 | App shall allow Guardians to review photo proof and approve or reject quests. | Quests | Guardian | High
+FR-017 | App shall credit Stars and Coins to child profile upon quest approval. | Rewards | Child | High
+FR-018 | App shall calculate child level titles based on total accumulated points. | Rewards | Child | Medium
+FR-019 | App shall allow Children to purchase and equip avatars using earned coins. | Rewards | Child | Medium
+FR-020 | App shall provide a playable Habit Blitz tap minigame with high score tracking. | Arcade | Child | Medium
+FR-021 | App shall provide a playable Memory Match card game with best time tracking. | Arcade | Child | Medium
+FR-022 | App shall send emergency SOS panic alerts with live GPS location to Guardian. | Safety | Child | High
+FR-023 | App shall allow Children to send one-tap safe check-in messages to Guardian. | Safety | Child | High
+FR-024 | App shall allow Guardians to configure curfew hours, school mode, and web filters. | Rules | Guardian | Medium
+FR-025 | App shall provide an Adult Task Manager for tracking household chores by priority. | AdultTasks | Guardian | Medium
+
+--- TABLE ---
+Category | Current Implementation | Architectural Recommendation
+Security | Plaintext SharedPreferences passwords | Implement PBKDF2/Bcrypt hashing and EncryptedSharedPreferences.
+Database | SharedPreferences JSON array serialization | Migrate to Room DB with full SQLite relationships and indexes.
+Cloud Security | Open Firestore / RTDB document access | Deploy strict Cloud Firestore Security Rules validating request.auth.uid.
+Location Tracking | Activity-bound FusedLocation updates | Implement a persistent Foreground Service with ongoing status bar notification.

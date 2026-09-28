@@ -1,0 +1,8 @@
+[Normal] HomeSync System Architecture & Design
+[Normal] High-Level 5-Layer System Architecture & Component Interaction Model
+[Normal] System Architectural Layers
+[Normal] • 1. Presentation Layer (Jetpack Compose / Material 3): Hosts all UI composables (LoginScreen.kt, GuardianHomeScreen.kt, ChildHomeScreen.kt, LockoutScreen.kt, LiveSafetyMap WebView, AdultTasksCard.kt, RewardsShopDialog.kt). UI components render reactively based on State primitives.
+[Normal] • 2. Business Logic & State Layer (ViewModel & Singletons): Encapsulates application state (HomeSyncViewModel) and single-responsibility business managers (AuthManager, ChildQuestManager, ScreenTimeManager, SafeZoneManager, ChildRewardsManager, ParentalControlManager, AdultTaskManager).
+[Normal] • 3. Local Storage Layer (Offline-First): Provides offline-first persistence using SharedPreferences (homesync_*_prefs), internal storage for PNG bitmaps (context.filesDir), and Android NotificationChannel for heads-up alerts.
+[Normal] • 4. Cloud Backend Layer (Firebase Serverless): Manages real-time multi-device database listeners (Cloud Firestore & Realtime Database), anonymous/Google authentication, and public HTTPS HD photo uploads (Firebase Storage).
+[Normal] • 5. External GIS & Location Services: Acquires continuous device GPS location via Google Play Services FusedLocationProviderClient and streams interactive map tiles from Google Maps and OpenStreetMap tile servers.

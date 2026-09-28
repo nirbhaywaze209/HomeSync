@@ -1,0 +1,470 @@
+<mxfile host="app.diagrams.net" modified="2026-08-23T14:56:00.000Z" agent="HomeSync-UML-Generator/1.0" version="24.7.5">
+  <!-- Page 1: Event Table -->
+  <diagram id="p1-event" name="1. Event Table">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title1" value="HomeSync System - UML Event Table" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="380" y="30" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="th1_1" value="Event #" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontStyle=1;fontSize=12;fillColor=#0284c7;strokeColor=#0369a1;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="70" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="th1_2" value="Event Name" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontStyle=1;fontSize=12;fillColor=#0284c7;strokeColor=#0369a1;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="110" y="80" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="th1_3" value="Trigger / Cause" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontStyle=1;fontSize=12;fillColor=#0284c7;strokeColor=#0369a1;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="270" y="80" width="220" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="th1_4" value="Source Actor" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontStyle=1;fontSize=12;fillColor=#0284c7;strokeColor=#0369a1;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="490" y="80" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="th1_5" value="Use Case" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontStyle=1;fontSize=12;fillColor=#0284c7;strokeColor=#0369a1;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="610" y="80" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="th1_6" value="System Response / Action" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontStyle=1;fontSize=12;fillColor=#0284c7;strokeColor=#0369a1;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="770" y="80" width="240" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="th1_7" value="Destination" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontStyle=1;fontSize=12;fillColor=#0284c7;strokeColor=#0369a1;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="80" width="120" height="40" as="geometry" />
+        </mxCell>
+        <!-- Data Rows -->
+        <mxCell id="r1_row1" value="E-01 | User Authentication | User enters email and password | Guardian/Child | Sign In | Validates &amp; saves session | MainActivity" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#f8fafc;strokeColor=#cbd5e1;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="1090" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="r1_row2" value="E-02 | Child Pairing | Guardian inputs Unique Code (HS-XXXXXX) | Guardian | Pair Child Device | Binds child profile &amp; loads map | GuardianHomeScreen" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#ffffff;strokeColor=#cbd5e1;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="165" width="1090" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="r1_row3" value="E-03 | GPS Location Update | FusedLocationProvider emits LatLng | Android GPS | Track Live Location | Reverse-geocodes &amp; updates beacon pin | LiveSafetyMap" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#f8fafc;strokeColor=#cbd5e1;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="1090" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="r1_row4" value="E-04 | Create Safe Zone by Hand | User taps map or adjusts slider (50-1500m) | Guardian | Create Safe Zone | Persists CustomSafeZone &amp; draws circle | SafeZoneManager" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#ffffff;strokeColor=#cbd5e1;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="255" width="1090" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="r1_row5" value="E-05 | Geofence Breach | Child GPS coordinate falls outside radius | Background Engine | Geofence Monitoring | Triggers breach warning alert &amp; notification | Guardian UI" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#f8fafc;strokeColor=#cbd5e1;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="1090" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="r1_row6" value="E-06 | SOS Emergency Panic | Child taps large red SOS button | Child | Trigger SOS Panic | Elevates to CRITICAL &amp; activates audible siren | Guardian Screen" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#fee2e2;strokeColor=#fca5a5;spacingLeft=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="345" width="1090" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="r1_row7" value="E-07 | Two-Finger Stretch Zoom | User stretches/pinches map with 2 fingers | Guardian/Child | Stretch-to-Zoom | Smoothly scales &amp; loads CartoDB/Esri raster tiles | Map Canvas" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#ffffff;strokeColor=#cbd5e1;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="390" width="1090" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="r1_row8" value="E-08 | User Logout | User clicks Logout button | Guardian/Child | Logout Session | Clears session in SharedPreferences &amp; returns to login | LoginScreen" style="shape=rect;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fillColor=#f8fafc;strokeColor=#cbd5e1;spacingLeft=10;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="435" width="1090" height="45" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- Page 2: Class Diagram -->
+  <diagram id="p2-class" name="2. Class Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title2" value="HomeSync System - UML Class Diagram" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="380" y="20" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_main" value="MainActivity&#xa;--&#xa;- currentScreen: String&#xa;- activeSession: ActiveSession&#xa;--&#xa;+ onCreate(savedInstanceState: Bundle): void" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f8fafc;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_auth" value="AuthManager&#xa;--&#xa;- PREFS_NAME: String&#xa;- KEY_SESSION_ACTIVE: String&#xa;--&#xa;+ registerAccount(context: Context, account: UserAccount): Result&lt;UserAccount&gt;&#xa;+ authenticate(context: Context, email: String, pass: String): Result&lt;UserAccount&gt;&#xa;+ saveActiveSession(context: Context, session: ActiveSession): void&#xa;+ getActiveSession(context: Context): ActiveSession&#xa;+ clearActiveSession(context: Context): void" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f0fdf4;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="370" y="70" width="440" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_account" value="UserAccount&#xa;--&#xa;+ email: String&#xa;+ password: String&#xa;+ name: String&#xa;+ role: String&#xa;+ childCode: String" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="70" width="220" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_session" value="ActiveSession&#xa;--&#xa;+ name: String&#xa;+ email: String&#xa;+ age: Int&#xa;+ screen: String&#xa;+ childId: String&#xa;+ linkedChildCode: String" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="220" width="220" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_safe" value="SafeZoneManager&#xa;--&#xa;- PREFS_NAME: String&#xa;- KEY_SAFE_ZONES: String&#xa;--&#xa;+ getSafeZones(context: Context): List&lt;CustomSafeZone&gt;&#xa;+ addSafeZone(context: Context, zone: CustomSafeZone): void&#xa;+ deleteSafeZone(context: Context, zoneId: String): void&#xa;+ updateSafeZone(context: Context, updatedZone: CustomSafeZone): void" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="370" y="270" width="440" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_zone" value="CustomSafeZone&#xa;--&#xa;+ id: String&#xa;+ name: String&#xa;+ icon: String&#xa;+ latitude: Double&#xa;+ longitude: Double&#xa;+ radiusMeters: Float&#xa;+ colorHex: String" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="380" width="220" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_map" value="LiveSafetyMap&#xa;--&#xa;- isSatellite: Boolean&#xa;- mapZoom: Int&#xa;- continuousScale: Float&#xa;- userSafeZones: List&lt;CustomSafeZone&gt;&#xa;--&#xa;+ Render(): void&#xa;+ handlePinchZoom(multiplier: Float): void&#xa;+ onTransform(panX: Float, panY: Float, zoomChange: Float): void" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="290" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_loc" value="LocationHelper&#xa;--&#xa;+ hasLocationPermission(context: Context): Boolean&#xa;+ fetchCurrentDeviceLocation(context: Context, onSuccess: Function, onFailure: Function): void&#xa;+ resolveAddress(context: Context, lat: Double, lng: Double): String" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="40" y="460" width="490" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c2_tile" value="RealTileMapLoader&#xa;--&#xa;- tileCache: LruCache&lt;String, Bitmap&gt;&#xa;--&#xa;+ getTileCoordinates(lat: Double, lng: Double, zoom: Int): Pair&lt;Int, Int&gt;&#xa;+ pixelOffsetToLatLng(baseLat: Double, baseLng: Double, zoom: Int, pxX: Float, pxY: Float): Pair&lt;Double, Double&gt;&#xa;+ loadTile(x: Int, y: Int, zoom: Int, isSatellite: Boolean): Bitmap" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="570" y="460" width="520" height="130" as="geometry" />
+        </mxCell>
+        <!-- Connectors -->
+        <mxCell id="r2_1" edge="1" parent="1" source="c2_main" target="c2_auth" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="r2_2" edge="1" parent="1" source="c2_auth" target="c2_account" style="endArrow=diamond;endFill=0;html=1;strokeWidth=1.5;" />
+        <mxCell id="r2_3" edge="1" parent="1" source="c2_auth" target="c2_session" style="endArrow=diamond;endFill=0;html=1;strokeWidth=1.5;" />
+        <mxCell id="r2_4" edge="1" parent="1" source="c2_safe" target="c2_zone" style="endArrow=diamond;endFill=0;html=1;strokeWidth=1.5;" />
+        <mxCell id="r2_5" edge="1" parent="1" source="c2_map" target="c2_safe" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="r2_6" edge="1" parent="1" source="c2_map" target="c2_loc" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="r2_7" edge="1" parent="1" source="c2_map" target="c2_tile" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- Page 3: Object Diagram -->
+  <diagram id="p3-object" name="3. Object Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title3" value="HomeSync System - UML Object Diagram (Instance Snapshot)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="300" y="30" width="560" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="obj3_session" value="&lt;u&gt;sarahSession : ActiveSession&lt;/u&gt;&#xa;--&#xa;name = &quot;Sarah (Guardian)&quot;&#xa;email = &quot;sarah@homesync.app&quot;&#xa;age = 38&#xa;screen = &quot;GUARDIAN&quot;&#xa;childId = &quot;&quot;&#xa;linkedChildCode = &quot;HS-849201&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="260" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="obj3_account" value="&lt;u&gt;nirbhayAccount : UserAccount&lt;/u&gt;&#xa;--&#xa;name = &quot;Nirbhay&quot;&#xa;email = &quot;nirbhay@homesync.app&quot;&#xa;password = &quot;••••••••&quot;&#xa;role = &quot;CHILD&quot;&#xa;childCode = &quot;HS-849201&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f0fdf4;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="440" y="100" width="260" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="obj3_map" value="&lt;u&gt;mapCanvas : RealWorldMapRenderer&lt;/u&gt;&#xa;--&#xa;zoom = 15&#xa;scaleMultiplier = 1.0f&#xa;isSatellite = false&#xa;panOffsetX = 0.0f&#xa;panOffsetY = 0.0f" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="820" y="100" width="280" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="obj3_home" value="&lt;u&gt;homeSafeZone : CustomSafeZone&lt;/u&gt;&#xa;--&#xa;id = &quot;zone_1724168000000&quot;&#xa;name = &quot;Home Residence&quot;&#xa;icon = &quot;🏡&quot;&#xa;latitude = 28.612900&#xa;longitude = 77.209500&#xa;radiusMeters = 300.0f&#xa;colorHex = &quot;#16A34A&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="220" y="340" width="270" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="obj3_school" value="&lt;u&gt;schoolSafeZone : CustomSafeZone&lt;/u&gt;&#xa;--&#xa;id = &quot;zone_1724168050000&quot;&#xa;name = &quot;Springdales School&quot;&#xa;icon = &quot;🏫&quot;&#xa;latitude = 28.618400&#xa;longitude = 77.214200&#xa;radiusMeters = 500.0f&#xa;colorHex = &quot;#0284C7&quot;" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="540" y="340" width="270" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="obj3_gps" value="&lt;u&gt;liveGpsTelemetry : LatLng&lt;/u&gt;&#xa;--&#xa;latitude = 28.613120&#xa;longitude = 77.209680" style="swimlane;fontStyle=0;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=26;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;fillColor=#f1f5f9;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="870" y="340" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="l3_1" value="monitors [HS-849201]" edge="1" parent="1" source="obj3_session" target="obj3_account" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l3_2" value="renders view" edge="1" parent="1" source="obj3_session" target="obj3_map" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l3_3" value="displays center beacon" edge="1" parent="1" source="obj3_map" target="obj3_gps" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l3_4" value="draws perimeter" edge="1" parent="1" source="obj3_map" target="obj3_home" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="l3_5" value="draws perimeter" edge="1" parent="1" source="obj3_map" target="obj3_school" style="endArrow=none;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- Page 4: Use Case Diagram -->
+  <diagram id="p4-usecase" name="4. Use Case Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="boundary4" value="HomeSync Child Safety &amp; Monitoring System" style="shape=rect;html=1;whiteSpace=wrap;align=center;verticalAlign=top;fontStyle=1;fontSize=15;fillColor=#f8fafc;strokeColor=#334155;strokeWidth=2;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="220" y="30" width="690" height="740" as="geometry" />
+        </mxCell>
+        <mxCell id="act4_guardian" value="🛡️ Guardian&#xa;(Parent)" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontStyle=1;fontSize=12;fillColor=#e2e8f0;strokeColor=#1e293b;" vertex="1" parent="1">
+          <mxGeometry x="60" y="240" width="55" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="act4_child" value="👦 Child&#xa;(Monitored)" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontStyle=1;fontSize=12;fillColor=#e2e8f0;strokeColor=#1e293b;" vertex="1" parent="1">
+          <mxGeometry x="60" y="520" width="55" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="act4_gps" value="🛰️ Android GPS&#xa;Engine" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontStyle=1;fontSize=12;fillColor=#e2e8f0;strokeColor=#1e293b;" vertex="1" parent="1">
+          <mxGeometry x="970" y="200" width="55" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="act4_tile" value="🗺️ GIS Tile&#xa;Server" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fontStyle=1;fontSize=12;fillColor=#e2e8f0;strokeColor=#1e293b;" vertex="1" parent="1">
+          <mxGeometry x="970" y="440" width="55" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_1" value="UC-01: Persistent Sign In / Account Auth" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="70" width="240" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_2" value="UC-02: Pair Child Device (HS-XXXXXX)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="150" width="240" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_3" value="UC-03: View Live Location on Real Map" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="230" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_4" value="UC-04: Create Custom Safe Zone by Hand" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="315" width="260" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_5" value="UC-05: Edit / Delete Safe Zone Perimeter" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="400" width="260" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_6" value="UC-06: Two-Finger Stretch / Pinch Zoom" style="ellipse;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="485" width="260" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_7" value="UC-07: Trigger SOS Emergency Panic" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="570" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_8" value="UC-08: Remote Screen Time Lockout" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="270" y="655" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_9" value="UC-09: Reverse Geocode Street Address" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="620" y="200" width="240" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_10" value="UC-10: Stream Real-World Map Tiles" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="620" y="290" width="240" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="uc4_11" value="UC-11: Geofence Breach Alert" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="620" y="450" width="230" height="50" as="geometry" />
+        </mxCell>
+        <!-- Links -->
+        <mxCell id="e4_1" edge="1" parent="1" source="act4_guardian" target="uc4_1" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_2" edge="1" parent="1" source="act4_guardian" target="uc4_2" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_3" edge="1" parent="1" source="act4_guardian" target="uc4_3" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_4" edge="1" parent="1" source="act4_guardian" target="uc4_4" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_5" edge="1" parent="1" source="act4_guardian" target="uc4_5" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_6" edge="1" parent="1" source="act4_guardian" target="uc4_6" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_7" edge="1" parent="1" source="act4_guardian" target="uc4_8" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_8" edge="1" parent="1" source="act4_child" target="uc4_1" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_9" edge="1" parent="1" source="act4_child" target="uc4_7" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="inc4_1" value="&amp;lt;&amp;lt;include&amp;gt;&amp;gt;" edge="1" parent="1" source="uc4_3" target="uc4_9" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="inc4_2" value="&amp;lt;&amp;lt;include&amp;gt;&amp;gt;" edge="1" parent="1" source="uc4_3" target="uc4_10" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="ext4_1" value="&amp;lt;&amp;lt;extend&amp;gt;&amp;gt;" edge="1" parent="1" source="uc4_11" target="uc4_4" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="ext4_2" value="&amp;lt;&amp;lt;extend&amp;gt;&amp;gt;" edge="1" parent="1" source="uc4_11" target="uc4_7" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_10" edge="1" parent="1" source="uc4_9" target="act4_gps" style="endArrow=none;html=1;strokeWidth=1.5;" />
+        <mxCell id="e4_11" edge="1" parent="1" source="uc4_10" target="act4_tile" style="endArrow=none;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- Page 5: Sequence Diagram -->
+  <diagram id="p5-seq" name="5. Sequence Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title5" value="HomeSync System - UML Sequence Diagram (SOS Panic Emergency Flow)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="240" y="20" width="680" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="ll5_child" value="👦 Child" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="70" width="100" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="ll5_childApp" value="📱 ChildHomeScreen" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="220" y="70" width="140" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="ll5_loc" value="📍 LocationHelper" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#fefce8;strokeColor=#ca8a04;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="70" width="130" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="ll5_gps" value="🛰️ FusedGPS" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="610" y="70" width="110" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="ll5_guard" value="🛡️ GuardianScreen" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#dcfce7;strokeColor=#16a34a;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="780" y="70" width="140" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="ll5_map" value="🗺️ LiveSafetyMap" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;outlineConnect=0;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="70" width="130" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="sm5_1" value="1: Tap SOS Emergency Panic Button" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=1.5;" edge="1" parent="1" source="ll5_child" target="ll5_childApp">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="130" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_2" value="2: fetchCurrentDeviceLocation(context)" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=1.5;" edge="1" parent="1" source="ll5_childApp" target="ll5_loc">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="170" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_3" value="3: getLastLocation(PRIORITY_HIGH_ACCURACY)" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=1.5;" edge="1" parent="1" source="ll5_loc" target="ll5_gps">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="210" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_4" value="4: Return LatLng(28.6131, 77.2096)" style="html=1;verticalAlign=bottom;endArrow=open;dashed=1;strokeWidth=1.5;" edge="1" parent="1" source="ll5_gps" target="ll5_loc">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="250" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_5" value="5: resolveAddress() via Geocoder" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=1.5;" edge="1" parent="1" source="ll5_loc" target="ll5_childApp">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="290" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_6" value="6: Broadcast SOS Emergency (Coordinates + Street Address)" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=2;strokeColor=#dc2626;" edge="1" parent="1" source="ll5_childApp" target="ll5_guard">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="340" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_7" value="7: Trigger Audible Alarm Siren &amp; Red Emergency Toast" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=1.5;" edge="1" parent="1" source="ll5_guard" target="ll5_guard">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="380" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_8" value="8: Re-Center Map &amp; Pulsate Emergency Beacon Aura" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=1.5;" edge="1" parent="1" source="ll5_guard" target="ll5_map">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="420" as="offset"/></mxGeometry>
+        </mxCell>
+        <mxCell id="sm5_9" value="9: Guardian taps &quot;📞 Call Child Device&quot;" style="html=1;verticalAlign=bottom;endArrow=block;strokeWidth=1.5;" edge="1" parent="1" source="ll5_guard" target="ll5_child">
+          <mxGeometry relative="1" as="geometry"><mxPoint y="470" as="offset"/></mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- Page 6: Activity Diagram -->
+  <diagram id="p6-act" name="6. Activity Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title6" value="HomeSync System - UML Activity Diagram (App Lifecycle &amp; Geofence Monitoring)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="260" y="20" width="650" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="start6" value="" style="ellipse;fillColor=#0f172a;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="545" y="70" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="d6_session" value="Active Session&#xa;Saved?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="495" y="130" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_login" value="Display LoginScreen&#xa;(Guardian / Child / Connect)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="220" y="140" width="190" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_save" value="Authenticate &amp; Save Session&#xa;(AuthManager.saveActiveSession)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="220" y="230" width="190" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="d6_role" value="User Role?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="505" y="230" width="110" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_child" value="Load ChildHomeScreen&#xa;(Show SOS Panic Button)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;" vertex="1" parent="1">
+          <mxGeometry x="720" y="235" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_tx_gps" value="Periodically Stream GPS Telemetry&#xa;(FusedLocationProviderClient)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#64748b;" vertex="1" parent="1">
+          <mxGeometry x="710" y="320" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_guard" value="Load GuardianHomeScreen&#xa;(Initialize LiveSafetyMap)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="460" y="330" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_tiles" value="Stream Real Map Raster Tiles&#xa;(CartoDB / Esri Tile Loader)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" vertex="1" parent="1">
+          <mxGeometry x="460" y="410" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_zones" value="Draw User Custom Safe Zones&#xa;(SafeZoneManager.getSafeZones)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;" vertex="1" parent="1">
+          <mxGeometry x="460" y="490" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="d6_fence" value="Distance &gt; Zone&#xa;Radius?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="495" y="570" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_alert" value="Emit Geofence Breach Alert&#xa;(Red Banner &amp; Warning Audio)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="580" width="190" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="act6_safe_status" value="Mark Status: Safe Inside Zone" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;" vertex="1" parent="1">
+          <mxGeometry x="250" y="580" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="end6" value="" style="ellipse;html=1;shape=endState;fillColor=#0f172a;strokeColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="545" y="700" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="e6_1" edge="1" parent="1" source="start6" target="d6_session" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_2" value="No" edge="1" parent="1" source="d6_session" target="act6_login" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_3" edge="1" parent="1" source="act6_login" target="act6_save" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_4" edge="1" parent="1" source="act6_save" target="d6_role" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_5" value="Yes" edge="1" parent="1" source="d6_session" target="d6_role" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_6" value="Child" edge="1" parent="1" source="d6_role" target="act6_child" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_7" edge="1" parent="1" source="act6_child" target="act6_tx_gps" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_8" value="Guardian" edge="1" parent="1" source="d6_role" target="act6_guard" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_9" edge="1" parent="1" source="act6_guard" target="act6_tiles" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_10" edge="1" parent="1" source="act6_tiles" target="act6_zones" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_11" edge="1" parent="1" source="act6_zones" target="d6_fence" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_12" value="Yes (Breach)" edge="1" parent="1" source="d6_fence" target="act6_alert" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_13" value="No (Safe)" edge="1" parent="1" source="d6_fence" target="act6_safe_status" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_14" edge="1" parent="1" source="act6_safe_status" target="end6" style="endArrow=block;html=1;strokeWidth=1.5;" />
+        <mxCell id="e6_15" edge="1" parent="1" source="act6_alert" target="end6" style="endArrow=block;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- Page 7: Component Diagram -->
+  <diagram id="p7-comp" name="7. Component Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title7" value="HomeSync System - UML Component Diagram (Layered Architecture)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="300" y="20" width="560" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg7_ui" value="&amp;lt;&amp;lt;component&amp;gt;&amp;gt;&#xa;Presentation Layer (Jetpack Compose UI)" style="shape=folder;fontStyle=1;tabWidth=140;tabHeight=25;tabPosition=left;html=1;boundedLbl=1;fillColor=#f8fafc;strokeColor=#334155;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="1070" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_main" value="MainActivity.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="pkg7_ui">
+          <mxGeometry x="30" y="50" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_login" value="LoginScreen.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="pkg7_ui">
+          <mxGeometry x="230" y="50" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_guard" value="GuardianHomeScreen.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="pkg7_ui">
+          <mxGeometry x="430" y="50" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_child" value="ChildHomeScreen.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="pkg7_ui">
+          <mxGeometry x="660" y="50" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_map" value="LiveSafetyMap.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#dcfce7;strokeColor=#16a34a;fontStyle=1;" vertex="1" parent="pkg7_ui">
+          <mxGeometry x="870" y="50" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg7_logic" value="&amp;lt;&amp;lt;component&amp;gt;&amp;gt;&#xa;Business &amp; Domain Logic Layer" style="shape=folder;fontStyle=1;tabWidth=140;tabHeight=25;tabPosition=left;html=1;boundedLbl=1;fillColor=#f8fafc;strokeColor=#334155;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="50" y="270" width="1070" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_auth" value="AuthManager.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#f0fdf4;strokeColor=#16a34a;fontStyle=1;" vertex="1" parent="pkg7_logic">
+          <mxGeometry x="30" y="50" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_safe" value="SafeZoneManager.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#fefce8;strokeColor=#ca8a04;fontStyle=1;" vertex="1" parent="pkg7_logic">
+          <mxGeometry x="230" y="50" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_loc" value="LocationHelper.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="pkg7_logic">
+          <mxGeometry x="450" y="50" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_tile" value="RealTileMapLoader.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="pkg7_logic">
+          <mxGeometry x="670" y="50" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_childId" value="ChildIdManager.kt" style="shape=module;align=center;verticalAlign=middle;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="pkg7_logic">
+          <mxGeometry x="890" y="50" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg7_storage" value="&amp;lt;&amp;lt;component&amp;gt;&amp;gt;&#xa;Storage &amp; Hardware Subsystem" style="shape=folder;fontStyle=1;tabWidth=140;tabHeight=25;tabPosition=left;html=1;boundedLbl=1;fillColor=#f8fafc;strokeColor=#334155;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="50" y="470" width="500" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_db" value="Android SharedPreferences&#xa;(Accounts, Sessions, Safe Zones)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=1;" vertex="1" parent="pkg7_storage">
+          <mxGeometry x="50" y="40" width="180" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_gps_hw" value="FusedLocationProvider&#xa;(Android GPS Hardware)" style="shape=module;align=center;verticalAlign=middle;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=1;" vertex="1" parent="pkg7_storage">
+          <mxGeometry x="270" y="50" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pkg7_ext" value="&amp;lt;&amp;lt;component&amp;gt;&amp;gt;&#xa;External GIS &amp; Tile Services" style="shape=folder;fontStyle=1;tabWidth=140;tabHeight=25;tabPosition=left;html=1;boundedLbl=1;fillColor=#f8fafc;strokeColor=#334155;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="620" y="470" width="500" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cmp7_tiles_srv" value="CartoDB / Esri / OSM&#xa;(Web Mercator Tile Repositories)" style="shape=module;align=center;verticalAlign=middle;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="pkg7_ext">
+          <mxGeometry x="120" y="50" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="w7_1" edge="1" parent="1" source="cmp7_main" target="cmp7_auth" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="w7_2" edge="1" parent="1" source="cmp7_map" target="cmp7_safe" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="w7_3" edge="1" parent="1" source="cmp7_map" target="cmp7_loc" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="w7_4" edge="1" parent="1" source="cmp7_map" target="cmp7_tile" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="w7_5" edge="1" parent="1" source="cmp7_auth" target="cmp7_db" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="w7_6" edge="1" parent="1" source="cmp7_safe" target="cmp7_db" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="w7_7" edge="1" parent="1" source="cmp7_loc" target="cmp7_gps_hw" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+        <mxCell id="w7_8" edge="1" parent="1" source="cmp7_tile" target="cmp7_tiles_srv" style="endArrow=open;dashed=1;html=1;strokeWidth=1.5;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <!-- Page 8: Deployment Diagram -->
+  <diagram id="p8-deploy" name="8. Deployment Diagram">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title8" value="HomeSync System - UML Deployment Diagram (Physical Nodes &amp; Hardware)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="270" y="20" width="630" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="node8_guard" value="&amp;lt;&amp;lt;device&amp;gt;&amp;gt;&#xa;Guardian Smartphone (Android 10+)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="50" y="80" width="460" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="art8_guard_apk" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;HomeSync.apk&#xa;(Guardian Process)" style="shape=module;align=center;verticalAlign=middle;fillColor=#e0f2fe;strokeColor=#0284c7;fontStyle=1;" vertex="1" parent="node8_guard">
+          <mxGeometry x="40" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="art8_guard_prefs" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;SharedPreferences&#xa;(Saved Session &amp; Zones)" style="shape=module;align=center;verticalAlign=middle;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=1;" vertex="1" parent="node8_guard">
+          <mxGeometry x="240" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hw8_screen" value="&amp;lt;&amp;lt;hardware&amp;gt;&amp;gt;&#xa;Capacitive Touch Display&#xa;(Two-Finger Stretch Pinch/Zoom)" style="shape=rect;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#fefce8;strokeColor=#ca8a04;fontStyle=1;" vertex="1" parent="node8_guard">
+          <mxGeometry x="40" y="170" width="380" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="node8_child" value="&amp;lt;&amp;lt;device&amp;gt;&amp;gt;&#xa;Child Smartphone (Android 8.0+)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="640" y="80" width="460" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="art8_child_apk" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;HomeSync.apk&#xa;(Child Process)" style="shape=module;align=center;verticalAlign=middle;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" vertex="1" parent="node8_child">
+          <mxGeometry x="40" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="art8_fused_loc" value="&amp;lt;&amp;lt;artifact&amp;gt;&amp;gt;&#xa;FusedLocationClient&#xa;(GNSS Location Provider)" style="shape=module;align=center;verticalAlign=middle;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="node8_child">
+          <mxGeometry x="240" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hw8_gps_chip" value="&amp;lt;&amp;lt;hardware&amp;gt;&amp;gt;&#xa;Internal GPS / GNSS Chipset&#xa;(L1 Band 1575.42 MHz Receiver)" style="shape=rect;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;" vertex="1" parent="node8_child">
+          <mxGeometry x="40" y="170" width="380" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="node8_sat" value="&amp;lt;&amp;lt;environment&amp;gt;&amp;gt;&#xa;GNSS Satellite Constellation (GPS / GLONASS / Galileo)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="640" y="440" width="460" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="sat8_signal" value="Global Positioning Satellites (24+ Satellites Array)" style="shape=ellipse;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#f1f5f9;strokeColor=#64748b;fontStyle=1;" vertex="1" parent="node8_sat">
+          <mxGeometry x="70" y="60" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="node8_cloud" value="&amp;lt;&amp;lt;cloud node&amp;gt;&amp;gt;&#xa;GIS Map Tile Server CDN (CartoDB / Esri)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;size=15;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="50" y="440" width="460" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cloud8_tiles" value="High-Bandwidth Retina 2x Raster Tiles&#xa;(HTTPS / TLS 1.3 Port 443)" style="shape=ellipse;whiteSpace=wrap;align=center;verticalAlign=middle;fillColor=#dcfce7;strokeColor=#16a34a;fontStyle=1;" vertex="1" parent="node8_cloud">
+          <mxGeometry x="70" y="60" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="net8_1" value="HTTPS / TLS 1.3 (SOS Alerts &amp; Telemetry)" edge="1" parent="1" source="art8_child_apk" target="art8_guard_apk" style="endArrow=none;html=1;strokeWidth=2;strokeColor=#dc2626;" />
+        <mxCell id="net8_2" value="HTTPS GET Requests (Port 443)" edge="1" parent="1" source="art8_guard_apk" target="cloud8_tiles" style="endArrow=none;html=1;strokeWidth=1.5;strokeColor=#0284c7;" />
+        <mxCell id="net8_3" value="RF L-Band Satellite Signals (1575.42 MHz)" edge="1" parent="1" source="sat8_signal" target="hw8_gps_chip" style="endArrow=none;html=1;strokeWidth=1.5;strokeColor=#7c3aed;dashed=1;" />
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
