@@ -358,6 +358,8 @@ object FirebaseSyncManager {
                             val isRead = doc.getBoolean("isRead") ?: false
                             val actionData = doc.getString("actionData") ?: ""
                             val targetRole = doc.getString("targetRole") ?: "GUARDIAN"
+                            val familyId = doc.getString("familyId") ?: ""
+                            val childUid = doc.getString("childUid") ?: ""
 
                             val notif = SystemNotification(
                                 id = notifId,
@@ -369,7 +371,9 @@ object FirebaseSyncManager {
                                 childCode = childCode,
                                 isRead = isRead,
                                 actionData = actionData,
-                                targetRole = targetRole
+                                targetRole = targetRole,
+                                familyId = familyId,
+                                childUid = childUid
                             )
                             onNotificationReceived(notif)
                         }
@@ -843,12 +847,19 @@ object FirebaseSyncManager {
                 "childCode" to cleanCode,
                 "date" to date,
                 "remainingSeconds" to remainingSeconds,
-                "isLocked" to isLocked,
                 "totalAllowance" to totalAllowance,
                 "usedSeconds" to usedSeconds,
                 "resetVersion" to resetVersion,
                 "updatedAt" to System.currentTimeMillis()
             )
+
+            // Only GUARDIAN commands can unlock; child telemetry can only report locked=true (e.g. quota exhausted)
+            if (sourceRole == "GUARDIAN" || isLocked) {
+                payload["isLocked"] = isLocked
+                if (sourceRole == "GUARDIAN") {
+                    payload["remoteLock"] = isLocked
+                }
+            }
             
             if (commandId != null) payload["commandId"] = commandId
             if (commandTimestamp != null) payload["commandTimestamp"] = commandTimestamp

@@ -400,60 +400,148 @@ object FirebaseRealtimeSyncManager {
     ): (() -> Unit)? {
         val cleanCode = childCode.trim().uppercase()
         if (cleanCode.isBlank()) return null
-        val db = FirebaseSyncManager.getDb() ?: return null
-
-        val rtdbPath = "hs_screentime/$cleanCode"
-        android.util.Log.i("HomeSyncScreenTime", "SCREEN_TIME_FIRESTORE_PATH path=$rtdbPath")
 
         var isDisposed = false
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
-        val registration = db.collection("hs_screentime").document(cleanCode)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    android.util.Log.e("HomeSyncScreenTime", "SCREEN_TIME_FIRESTORE_ERROR message=${error.message}", error)
-                    return@addSnapshotListener
+        fun notifyUpdate(
+            rem: Int,
+            remoteLock: Boolean,
+            allowance: Int,
+            used: Int,
+            cmdId: String,
+            cmdTs: Long,
+            curfew: Boolean,
+            targetChild: String,
+            cmdType: String,
+            d: String
+        ) {
+            if (isDisposed) return
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                onUpdate(rem, remoteLock, allowance, used, cmdId, cmdTs, curfew, targetChild, cmdType, d)
+            } else {
+                mainHandler.post {
+                    if (!isDisposed) {
+                        onUpdate(rem, remoteLock, allowance, used, cmdId, cmdTs, curfew, targetChild, cmdType, d)
+                    }
                 }
-                if (isDisposed || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+            }
+        }
 
-                val remoteLock = snapshot.getBoolean("isLocked") ?: false
+        // 1. Primary: Realtime Database (RTDB) listener (sub-second zero-latency WebSocket)
+        val rtdb = getRtdb()
+        val rtdbRef = rtdb?.getReference("hs_screentime")?.child(cleanCode)
+        var rtdbListener: com.google.firebase.database.ValueEventListener? = null
+
+        if (rtdbRef != null) {
+            rtdbListener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                    if (isDisposed || !snapshot.exists()) return
+
+                    val remoteLock = snapshot.child("remoteLock").getValue(Boolean::class.java)
+                        ?: snapshot.child("isLocked").getValue(Boolean::class.java)
+                        ?: false
+                    val isLockedVal = snapshot.child("isLocked").getValue(Boolean::class.java) ?: false
+                    val cmdId = snapshot.child("commandId").getValue(String::class.java) ?: "NONE"
+                    val cmdTimestamp = snapshot.child("commandTimestamp").getValue(Long::class.java) ?: 0L
+                    val commandType = snapshot.child("commandType").getValue(String::class.java) ?: "NONE"
+                    val targetChildId = snapshot.child("targetChildId").getValue(String::class.java) ?: cleanCode
+
+                    val isLockCmd = commandType.equals("LOCK", ignoreCase = true) ||
+                            commandType.equals("LOCK_DEVICE", ignoreCase = true) ||
+                            cmdId.startsWith("LOCK")
+                    val isUnlockCmd = commandType.equals("UNLOCK", ignoreCase = true) ||
+                            commandType.equals("UNLOCK_DEVICE", ignoreCase = true) ||
+                            cmdId.startsWith("UNLOCK")
+
+                    val effectiveLocked = when {
+                        isLockCmd -> true
+                        isUnlockCmd -> false
+                        else -> remoteLock || isLockedVal
+                    }
+
+                    val remoteAllowance = (snapshot.child("totalAllowance").getValue(Long::class.java)
+                        ?: snapshot.child("remoteAllowance").getValue(Long::class.java) ?: 21600L).toInt()
+                    val rawRem = (snapshot.child("remainingSeconds").getValue(Long::class.java) ?: 21600L).toInt()
+                    val rawUsed = (snapshot.child("usedSeconds").getValue(Long::class.java)
+                        ?: (remoteAllowance - rawRem).coerceAtLeast(0).toLong()).toInt()
+
+                    val curfewOverride = snapshot.child("curfewOverride").getValue(Boolean::class.java) ?: false
+                    val date = snapshot.child("date").getValue(String::class.java) ?: ScreenTimeManager.getCurrentScreenTimeDate()
+                    val today = ScreenTimeManager.getCurrentScreenTimeDate()
+
+                    val isPastDate = date.isNotBlank() && date != today
+                    val used = if (isPastDate) 0 else rawUsed
+                    val rem = if (effectiveLocked) 0 else (if (isPastDate) remoteAllowance else rawRem)
+                    val recvTs = System.currentTimeMillis()
+
+                    android.util.Log.i("HomeSyncLatency", "RTDB_COMMAND_RECEIVED childCode=$cleanCode targetChildId=$targetChildId commandType=$commandType commandId=$cmdId locked=$effectiveLocked latencyMs=${if (cmdTimestamp > 0) recvTs - cmdTimestamp else -1}")
+                    android.util.Log.i("HomeSyncScreenTime", "SCREEN_TIME_RTDB_UPDATE childCode=$cleanCode locked=$effectiveLocked rem=$rem used=$used allowance=$remoteAllowance cmdId=$cmdId")
+
+                    notifyUpdate(rem, effectiveLocked, remoteAllowance, used, cmdId, cmdTimestamp, curfewOverride, targetChildId, commandType, date)
+                }
+
+                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                    android.util.Log.w("HomeSyncScreenTime", "RTDB screen time listener cancelled: ${error.message}")
+                }
+            }
+            rtdbRef.addValueEventListener(rtdbListener)
+        }
+
+        // 2. Secondary: Firestore listener (quota-friendly fallback)
+        val db = FirebaseSyncManager.getDb()
+        val firestoreReg = db?.collection("hs_screentime")?.document(cleanCode)
+            ?.addSnapshotListener { snapshot, error ->
+                if (error != null || isDisposed || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+
+                val remoteLock = snapshot.getBoolean("remoteLock")
+                    ?: snapshot.getBoolean("isLocked")
+                    ?: false
+                val isLockedVal = snapshot.getBoolean("isLocked") ?: false
+                val cmdId = snapshot.getString("commandId") ?: "NONE"
+                val cmdTimestamp = snapshot.getLong("commandTimestamp") ?: 0L
+                val commandType = snapshot.getString("commandType") ?: "NONE"
+                val targetChildId = snapshot.getString("targetChildId") ?: cleanCode
+
+                val isLockCmd = commandType.equals("LOCK", ignoreCase = true) ||
+                        commandType.equals("LOCK_DEVICE", ignoreCase = true) ||
+                        cmdId.startsWith("LOCK")
+                val isUnlockCmd = commandType.equals("UNLOCK", ignoreCase = true) ||
+                        commandType.equals("UNLOCK_DEVICE", ignoreCase = true) ||
+                        cmdId.startsWith("UNLOCK")
+
+                val effectiveLocked = when {
+                    isLockCmd -> true
+                    isUnlockCmd -> false
+                    else -> remoteLock || isLockedVal
+                }
+
                 val remoteAllowance = (snapshot.getLong("totalAllowance") ?: 21600L).toInt()
                 val rawRem = (snapshot.getLong("remainingSeconds") ?: 21600L).toInt()
                 val rawUsed = (snapshot.getLong("usedSeconds") ?: (remoteAllowance - rawRem).coerceAtLeast(0).toLong()).toInt()
 
-                val cmdId = snapshot.getString("commandId") ?: "NONE"
-                val cmdTimestamp = snapshot.getLong("commandTimestamp") ?: 0L
                 val curfewOverride = snapshot.getBoolean("curfewOverride") ?: false
-                val targetChildId = snapshot.getString("targetChildId") ?: cleanCode
-                val commandType = snapshot.getString("commandType") ?: "NONE"
                 val date = snapshot.getString("date") ?: ScreenTimeManager.getCurrentScreenTimeDate()
                 val today = ScreenTimeManager.getCurrentScreenTimeDate()
 
                 val isPastDate = date.isNotBlank() && date != today
                 val used = if (isPastDate) 0 else rawUsed
-                val rem = if (isPastDate) remoteAllowance else rawRem
-                val recvTs = System.currentTimeMillis()
+                val rem = if (effectiveLocked) 0 else (if (isPastDate) remoteAllowance else rawRem)
 
-                android.util.Log.i("HomeSyncLatency", "COMMAND_RECEIVED childCode=$cleanCode targetChildId=$targetChildId commandType=$commandType commandId=$cmdId cmdTimestamp=$cmdTimestamp recvTimestamp=$recvTs latencyFromCmdMs=${if (cmdTimestamp > 0) recvTs - cmdTimestamp else -1}")
-                android.util.Log.i("HomeSyncScreenTime", "SCREEN_TIME_COMMAND_RECEIVED childCode=$cleanCode targetChildId=$targetChildId commandType=$commandType commandId=$cmdId date=$date remoteLock=$remoteLock allowance=$remoteAllowance used=$used remaining=$rem curfewOverride=$curfewOverride timestamp=$recvTs")
-                android.util.Log.i("HomeSyncScreenTime", "SCREEN_TIME_REMOTE_UPDATE childCode=$cleanCode used=$used remaining=$rem allowance=$remoteAllowance locked=$remoteLock")
-
-                if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
-                    if (!isDisposed) {
-                        onUpdate(rem, remoteLock, remoteAllowance, used, cmdId, cmdTimestamp, curfewOverride, targetChildId, commandType, date)
-                    }
-                } else {
-                    mainHandler.post {
-                        if (!isDisposed) {
-                            onUpdate(rem, remoteLock, remoteAllowance, used, cmdId, cmdTimestamp, curfewOverride, targetChildId, commandType, date)
-                        }
-                    }
-                }
+                android.util.Log.i("HomeSyncScreenTime", "SCREEN_TIME_FIRESTORE_UPDATE childCode=$cleanCode locked=$effectiveLocked rem=$rem")
+                notifyUpdate(rem, effectiveLocked, remoteAllowance, used, cmdId, cmdTimestamp, curfewOverride, targetChildId, commandType, date)
             }
 
         return {
             isDisposed = true
-            registration.remove()
+            try {
+                if (rtdbRef != null && rtdbListener != null) {
+                    rtdbRef.removeEventListener(rtdbListener)
+                }
+            } catch (_: Exception) {}
+            try {
+                firestoreReg?.remove()
+            } catch (_: Exception) {}
         }
     }
     fun listenScreenTimeWithCommand(
@@ -657,7 +745,9 @@ object FirebaseRealtimeSyncManager {
                 "childCode" to notification.childCode.trim().uppercase(),
                 "isRead" to notification.isRead,
                 "actionData" to notification.actionData,
-                "targetRole" to notification.targetRole
+                "targetRole" to notification.targetRole,
+                "familyId" to notification.familyId,
+                "childUid" to notification.childUid
             )
             rtdb.getReference("hs_notifications").child(notification.id).setValue(payload)
         } catch (e: Exception) {
@@ -724,6 +814,8 @@ object FirebaseRealtimeSyncManager {
         val isRead = snapshot.child("isRead").getValue(Boolean::class.java) ?: false
         val actionData = snapshot.child("actionData").getValue(String::class.java) ?: ""
         val targetRole = snapshot.child("targetRole").getValue(String::class.java) ?: "GUARDIAN"
+        val familyId = snapshot.child("familyId").getValue(String::class.java) ?: ""
+        val childUid = snapshot.child("childUid").getValue(String::class.java) ?: ""
 
         return SystemNotification(
             id = id,
@@ -735,7 +827,9 @@ object FirebaseRealtimeSyncManager {
             childCode = childCode,
             isRead = isRead,
             actionData = actionData,
-            targetRole = targetRole
+            targetRole = targetRole,
+            familyId = familyId,
+            childUid = childUid
         )
     }
 }

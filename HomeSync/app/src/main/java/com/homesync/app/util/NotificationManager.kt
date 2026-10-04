@@ -11,7 +11,9 @@ enum class NotificationType {
     CHILD_SAFE_CHECKIN,
     SOS_EMERGENCY,
     SAFE_ZONE_EVENT,
-    FAMILY_JOIN_REQUEST
+    FAMILY_JOIN_REQUEST,
+    TASK_ASSIGNED,
+    TASK_APPROVED
 }
 
 data class SystemNotification(
@@ -106,68 +108,137 @@ object NotificationManager {
                     )
                 )
             }
-            list.sortedByDescending { it.timestamp }
+            val effectiveRole = getEffectiveRole(context)
+            list.filter { it.targetRole.equals(effectiveRole, ignoreCase = true) }
+                .sortedByDescending { it.timestamp }
         } catch (_: Exception) {
             emptyList()
         }
     }
 
-    private const val CHANNEL_ID = "homesync_heads_up_alerts_v2"
-    private const val CHANNEL_NAME = "HomeSync Pop-up Alerts"
-    private const val CHANNEL_EMERGENCY_ID = "homesync_emergency_alerts_v2"
-    private const val CHANNEL_EMERGENCY_NAME = "HomeSync Emergency SOS Alerts"
+    fun getEffectiveRole(context: Context): String {
+        val storedRole = try {
+            FamilyManager.getStoredUserRole(context)
+        } catch (_: Exception) {
+            FamilyRole.GUARDIAN
+        }
+        if (activeDeviceRole.equals("CHILD", ignoreCase = true) || storedRole == FamilyRole.CHILD) {
+            return "CHILD"
+        }
+        return if (activeDeviceRole.isNotBlank()) activeDeviceRole else "GUARDIAN"
+    }
+
+    fun isTargetDevice(context: Context, notification: SystemNotification): Boolean {
+        val effectiveRole = getEffectiveRole(context)
+        if (!notification.targetRole.equals(effectiveRole, ignoreCase = true)) {
+            return false
+        }
+        if (effectiveRole.equals("CHILD", ignoreCase = true)) {
+            val myUid = try {
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                    ?: FamilyManager.getStoredUserId(context)
+            } catch (_: Exception) { "" }
+            val myCode = try { ChildIdManager.getDeviceChildId(context) } catch (_: Exception) { "" }
+
+            val targetUid = notification.childUid.trim()
+            val targetCode = notification.childCode.trim()
+
+            val matchesUid = targetUid.isBlank() || myUid.isBlank() || targetUid.equals(myUid, ignoreCase = true)
+            val matchesCode = targetCode.isBlank() || myCode.isBlank() || targetCode.equals(myCode, ignoreCase = true)
+
+            if (!matchesUid && !matchesCode) {
+                return false
+            }
+        } else if (effectiveRole.equals("GUARDIAN", ignoreCase = true)) {
+            val myFamilyId = try { FamilyManager.getStoredFamilyId(context).trim().uppercase() } catch (_: Exception) { "" }
+            val notifFamilyId = notification.familyId.trim().uppercase()
+            if (myFamilyId.isNotBlank() && notifFamilyId.isNotBlank() && myFamilyId != notifFamilyId) {
+                return false
+            }
+        }
+        return true
+    }
+
+    const val CHANNEL_ID = "homesync_heads_up_alerts_v3"
+    const val CHANNEL_NAME = "HomeSync Alerts & Tasks"
+    const val CHANNEL_EMERGENCY_ID = "homesync_emergency_alerts_v2"
+    const val CHANNEL_EMERGENCY_NAME = "HomeSync Emergency SOS Alerts"
+
+    fun ensureChannels(context: Context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val systemNotifManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+
+            // 1. Regular Alerts & Quests Channel (Heads-up pop-up, notification chime, vibration)
+            val notifSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+            val notifAudioAttrs = android.media.AudioAttributes.Builder()
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                .build()
+
+            val channel = android.app.NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Instant pop-up notifications for child quests, tasks, check-ins, and safety alerts"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 250, 150, 250)
+                enableLights(true)
+                lightColor = android.graphics.Color.BLUE
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                setSound(notifSound, notifAudioAttrs)
+            }
+            systemNotifManager.createNotificationChannel(channel)
+
+            // 2. Emergency SOS Channel (Loud alarm, flashing red, DND bypass)
+            val alarmSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+                ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+            val emergencyAudioAttrs = android.media.AudioAttributes.Builder()
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                .build()
+
+            val emergencyChannel = android.app.NotificationChannel(
+                CHANNEL_EMERGENCY_ID,
+                CHANNEL_EMERGENCY_NAME,
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Loud emergency SOS alerts from family members"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500, 200, 500)
+                enableLights(true)
+                lightColor = android.graphics.Color.RED
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                setBypassDnd(true)
+                setSound(alarmSound, emergencyAudioAttrs)
+            }
+            systemNotifManager.createNotificationChannel(emergencyChannel)
+        }
+    }
 
     private fun showSystemStatusBarNotification(context: Context, notification: SystemNotification) {
         try {
-            // Only fire system pop-up banner if notification is targeted to the current device role
-            if (!notification.targetRole.equals(activeDeviceRole, ignoreCase = true)) {
+            // Only fire system pop-up banner if notification is targeted to the current device role and user
+            if (!isTargetDevice(context, notification)) {
                 return
             }
 
             val systemNotifManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
             val isEmergency = notification.type == NotificationType.SOS_EMERGENCY
-
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                if (isEmergency) {
-                    val emergencyChannel = android.app.NotificationChannel(
-                        CHANNEL_EMERGENCY_ID,
-                        CHANNEL_EMERGENCY_NAME,
-                        android.app.NotificationManager.IMPORTANCE_HIGH
-                    ).apply {
-                        description = "Loud emergency SOS alerts from family members"
-                        enableVibration(true)
-                        vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500, 200, 500)
-                        enableLights(true)
-                        lightColor = android.graphics.Color.RED
-                        lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                        setBypassDnd(true)
-                        val alarmSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
-                            ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-                        val audioAttributes = android.media.AudioAttributes.Builder()
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .setUsage(android.media.AudioAttributes.USAGE_ALARM)
-                            .build()
-                        setSound(alarmSound, audioAttributes)
-                    }
-                    systemNotifManager.createNotificationChannel(emergencyChannel)
-                } else {
-                    val channel = android.app.NotificationChannel(
-                        CHANNEL_ID,
-                        CHANNEL_NAME,
-                        android.app.NotificationManager.IMPORTANCE_HIGH
-                    ).apply {
-                        description = "Instant pop-up notifications for child check-ins, tasks, and safety alerts"
-                        enableVibration(true)
-                        vibrationPattern = longArrayOf(0, 300, 150, 300)
-                        enableLights(true)
-                        lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                    }
-                    systemNotifManager.createNotificationChannel(channel)
-                }
-            }
+            ensureChannels(context)
 
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("NOTIFICATION_ID", notification.id)
+                putExtra("NOTIFICATION_TYPE", notification.type.name)
+                putExtra("ACTION_DATA", notification.actionData)
+                putExtra("TARGET_ROLE", notification.targetRole)
+                if (isEmergency) {
+                    putExtra("NAVIGATE_TO", "EMERGENCY_SOS")
+                    putExtra("SOS_CHILD_NAME", notification.childName)
+                    putExtra("SOS_CHILD_CODE", notification.childCode)
+                    putExtra("SOS_FAMILY_ID", notification.familyId)
+                }
             }
             val pendingIntent = if (launchIntent != null) {
                 android.app.PendingIntent.getActivity(
@@ -178,30 +249,81 @@ object NotificationManager {
                 )
             } else null
 
+            val isChildTarget = notification.targetRole.equals("CHILD", ignoreCase = true)
+            val displayTitle = when {
+                isEmergency -> "🚨 SOS: ${notification.childName} - ${notification.title}"
+                isChildTarget -> notification.title
+                else -> "${notification.childName}: ${notification.title}"
+            }
+
             val targetChannel = if (isEmergency) CHANNEL_EMERGENCY_ID else CHANNEL_ID
+            val smallIconRes = if (isEmergency) {
+                android.R.drawable.ic_dialog_alert
+            } else {
+                context.applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.ic_dialog_info
+            }
+
             val builder = androidx.core.app.NotificationCompat.Builder(context, targetChannel)
-                .setSmallIcon(if (isEmergency) android.R.drawable.ic_dialog_alert else android.R.drawable.ic_dialog_info)
-                .setContentTitle("${if (isEmergency) "🚨 SOS: " else ""}${notification.childName}: ${notification.title}")
+                .setSmallIcon(smallIconRes)
+                .setContentTitle(displayTitle)
                 .setContentText(notification.message)
+                .setStyle(
+                    androidx.core.app.NotificationCompat.BigTextStyle()
+                        .bigText(notification.message)
+                        .setBigContentTitle(displayTitle)
+                        .setSummaryText(if (isChildTarget) "HomeSync Quest" else "HomeSync")
+                )
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MAX)
-                .setDefaults(if (isEmergency) androidx.core.app.NotificationCompat.DEFAULT_VIBRATE or androidx.core.app.NotificationCompat.DEFAULT_LIGHTS else androidx.core.app.NotificationCompat.DEFAULT_ALL)
                 .setCategory(if (isEmergency) androidx.core.app.NotificationCompat.CATEGORY_ALARM else androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
                 .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(true)
+                .setColor(0xFF2563EB.toInt())
+                .setShowWhen(true)
+                .setWhen(notification.timestamp)
+
+            // Large Icon for high-fidelity phone notification look
+            try {
+                if (context.applicationInfo.icon != 0) {
+                    val largeBmp = android.graphics.BitmapFactory.decodeResource(context.resources, context.applicationInfo.icon)
+                    if (largeBmp != null) {
+                        builder.setLargeIcon(largeBmp)
+                    }
+                }
+            } catch (_: Exception) {}
 
             if (isEmergency) {
                 val alarmSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
                     ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
                 builder.setSound(alarmSound)
                 builder.setVibrate(longArrayOf(0, 500, 200, 500, 200, 500, 200, 500))
+                builder.setDefaults(androidx.core.app.NotificationCompat.DEFAULT_VIBRATE or androidx.core.app.NotificationCompat.DEFAULT_LIGHTS)
+            } else {
+                val notifSound = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                builder.setSound(notifSound)
+                builder.setVibrate(longArrayOf(0, 250, 150, 250))
+                builder.setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
             }
 
             if (pendingIntent != null) {
                 builder.setContentIntent(pendingIntent)
+                if (isEmergency) {
+                    builder.setFullScreenIntent(pendingIntent, true)
+                }
+
+                // Add contextual action button like native phone notifications
+                val actionLabel = when (notification.type) {
+                    NotificationType.TASK_ASSIGNED -> "View Quest 📋"
+                    NotificationType.TASK_APPROVED -> "Check Stars ⭐"
+                    NotificationType.TASK_PHOTO_SUBMITTED -> "Verify Proof 📷"
+                    NotificationType.SOS_EMERGENCY -> "View Location 🚨"
+                    else -> "Open HomeSync"
+                }
+                builder.addAction(smallIconRes, actionLabel, pendingIntent)
             }
 
             val notifId = notification.id.hashCode()
             systemNotifManager.notify(notifId, builder.build())
+            android.util.Log.i("NotificationManager", "SYSTEM_NOTIFICATION_DISPLAYED id=${notification.id} title=\"$displayTitle\" targetRole=${notification.targetRole}")
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -209,10 +331,10 @@ object NotificationManager {
 
     @Synchronized
     fun addNotification(context: Context, notification: SystemNotification) {
-        val current = getNotifications(context).toMutableList()
         if (isAlertDismissed(context, notification.id)) return
+        val current = getNotifications(context).toMutableList()
         android.util.Log.i("NotificationManager", "NOTIFICATION_RECEIVED id=${notification.id} title=\"${notification.title}\" targetRole=${notification.targetRole}")
-        if (current.none { it.id == notification.id }) {
+        if (isTargetDevice(context, notification) && current.none { it.id == notification.id }) {
             current.add(0, notification)
             saveNotifications(context, current)
         }
@@ -227,6 +349,8 @@ object NotificationManager {
     @Synchronized
     fun addNotificationFromCloud(context: Context, notification: SystemNotification) {
         if (isAlertDismissed(context, notification.id)) return
+        if (!isTargetDevice(context, notification)) return
+
         val current = getNotifications(context).toMutableList()
         val existingIndex = current.indexOfFirst { it.id == notification.id }
         if (existingIndex >= 0) {

@@ -61,25 +61,57 @@ object FamilyTaskManager {
         val cleanTaskId = taskId.trim()
         if (cleanFamilyId.isBlank() || cleanChildUserId.isBlank() || cleanTaskId.isBlank()) return
 
-        val rtdb = getRtdb() ?: return
+        val payload = mapOf(
+            "taskId" to cleanTaskId,
+            "childUserId" to cleanChildUserId,
+            "familyId" to cleanFamilyId,
+            "deletedAt" to System.currentTimeMillis()
+        )
+
+        // 1. Sync to RTDB
         try {
-            val payload = mapOf(
-                "taskId" to cleanTaskId,
-                "childUserId" to cleanChildUserId,
-                "familyId" to cleanFamilyId,
-                "deletedAt" to System.currentTimeMillis()
-            )
-            rtdb.getReference(RTDB_TOMBSTONES)
-                .child(cleanFamilyId)
-                .child(cleanChildUserId)
-                .child(cleanTaskId)
-                .setValue(payload)
-                .addOnSuccessListener {
+            val rtdb = getRtdb()
+            rtdb?.getReference(RTDB_TOMBSTONES)
+                ?.child(cleanFamilyId)
+                ?.child(cleanChildUserId)
+                ?.child(cleanTaskId)
+                ?.setValue(payload)
+                ?.addOnSuccessListener {
                     Log.i(TAG, "TASK_CLOUD_TOMBSTONE_SYNCED taskId=$cleanTaskId familyId=$cleanFamilyId childUserId=$cleanChildUserId")
                 }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to sync tombstone to RTDB", e)
         }
+
+        // 2. Sync to Firestore
+        try {
+            val db = getDb()
+            db?.collection(COLLECTION_FAMILIES)
+                ?.document(cleanFamilyId)
+                ?.collection(COLLECTION_MEMBERS)
+                ?.document(cleanChildUserId)
+                ?.collection("tombstones")
+                ?.document(cleanTaskId)
+                ?.set(payload)
+                ?.addOnSuccessListener {
+                    Log.i(TAG, "TASK_FIRESTORE_TOMBSTONE_SYNCED taskId=$cleanTaskId")
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to sync tombstone to Firestore", e)
+        }
+    }
+
+    fun syncAllLocalTombstonesToCloud(context: Context, familyId: String, childUserId: String) {
+        val cleanFamilyId = familyId.trim().uppercase()
+        val cleanChildUserId = childUserId.trim()
+        if (cleanFamilyId.isBlank() || cleanChildUserId.isBlank()) return
+        try {
+            val prefs = context.getSharedPreferences(PREFS_TOMBSTONES, Context.MODE_PRIVATE)
+            val set = prefs.getStringSet("deleted_task_ids", emptySet()) ?: emptySet()
+            for (taskId in set) {
+                syncTombstoneToCloud(cleanFamilyId, cleanChildUserId, taskId)
+            }
+        } catch (_: Exception) {}
     }
 
     fun isTombstoned(context: Context, taskId: String): Boolean {
@@ -201,6 +233,23 @@ object FamilyTaskManager {
                             )
                         }
 
+                        val approvedNotifId = "task_approved_${chosen.id}"
+                        if (!NotificationManager.isAlertDismissed(context, approvedNotifId)) {
+                            val notif = SystemNotification(
+                                id = approvedNotifId,
+                                title = "Task Approved! 🌟",
+                                message = "Awesome job! You earned ${chosen.rewardStars} Stars for completing \"${chosen.title}\"!",
+                                type = NotificationType.TASK_APPROVED,
+                                childName = "Child",
+                                childCode = childUserId,
+                                actionData = chosen.id,
+                                targetRole = "CHILD",
+                                familyId = familyId,
+                                childUid = childUserId
+                            )
+                            NotificationManager.addNotification(context, notif)
+                        }
+
                         addTombstone(context, id)
                         Log.i(TAG, "TASK_TOMBSTONE_ADDED taskId=$id")
 
@@ -238,6 +287,35 @@ object FamilyTaskManager {
                 ChildQuestManager.saveQuestsFromCloud(context, currentAuthUid, taskList)
             }
 
+            // If running on Child device, ensure notification exists for any new pending tasks
+            try {
+                val effectiveRole = NotificationManager.getEffectiveRole(context)
+                if (effectiveRole.equals("CHILD", ignoreCase = true)) {
+                    for (task in taskList) {
+                        if (task.status == QuestStatus.PENDING) {
+                            val assignedNotifId = "task_assigned_${task.id}"
+                            if (!NotificationManager.isAlertDismissed(context, assignedNotifId) &&
+                                NotificationManager.getNotifications(context).none { it.id == assignedNotifId || it.actionData == task.id }
+                            ) {
+                                val notif = SystemNotification(
+                                    id = assignedNotifId,
+                                    title = "New Quest Assigned! 📋",
+                                    message = "New task: \"${task.title}\" • Earn ${task.rewardStars} Stars! (${task.dueTime})",
+                                    type = NotificationType.TASK_ASSIGNED,
+                                    childName = "Child",
+                                    childCode = childUserId,
+                                    actionData = task.id,
+                                    targetRole = "CHILD",
+                                    familyId = familyId,
+                                    childUid = childUserId
+                                )
+                                NotificationManager.addNotification(context, notif)
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
             Log.i(TAG, "TASK_SYNC_UI_RECONCILED activeTaskIds=$taskIds")
             mainHandler.post {
                 onTasksUpdated(taskList)
@@ -256,6 +334,7 @@ object FamilyTaskManager {
         title: String,
         rewardStars: Int,
         dueTime: String,
+        childName: String = "Child",
         onComplete: (Result<ChildQuest>) -> Unit = {}
     ) {
         val cleanFamilyId = familyId.trim().uppercase()
@@ -359,6 +438,26 @@ object FamilyTaskManager {
             mainHandler.post { onComplete(Result.failure(IllegalStateException("No database available"))) }
         }
 
+        // Dispatch real-time cross-device notification to child
+        val notif = SystemNotification(
+            id = "task_assigned_${task.id}",
+            title = "New Quest Assigned! 📋",
+            message = "New task: \"${task.title}\" • Earn $rewardStars Stars! (${task.dueTime})",
+            type = NotificationType.TASK_ASSIGNED,
+            childName = childName,
+            childCode = cleanChildUserId,
+            actionData = task.id,
+            targetRole = "CHILD",
+            familyId = cleanFamilyId,
+            childUid = cleanChildUserId
+        )
+        try {
+            FirebaseSyncManager.sendNotificationToCloud(notif)
+            Log.i(TAG, "TASK_NOTIFICATION_DISPATCHED taskId=$taskId childUserId=$cleanChildUserId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to dispatch task notification to cloud", e)
+        }
+
         // Immediately update local reconciled state for instant UI responsiveness
         activeSyncStates[cleanChildUserId]?.let { syncState ->
             syncState.latestRtdbTasks[taskId] = task
@@ -396,6 +495,9 @@ object FamilyTaskManager {
         }
 
         Log.i(TAG, "TASK_SYNC_LISTENER_START familyId=$cleanFamilyId childUserId=$cleanChildUserId currentUserUid=$currentAuthUid")
+
+        // Sync any existing local tombstones to cloud so all devices stay up-to-date
+        syncAllLocalTombstonesToCloud(context, cleanFamilyId, cleanChildUserId)
 
         val syncState = ChildTaskSyncState(context, cleanFamilyId, cleanChildUserId, onTasksUpdated)
         activeSyncStates[cleanChildUserId] = syncState
@@ -480,6 +582,12 @@ object FamilyTaskManager {
                             newTombstonesFound = true
                             Log.i(TAG, "TASK_CLOUD_TOMBSTONE_RECEIVED taskId=$taskId childUserId=$cleanChildUserId")
                         }
+                        syncState.latestRtdbTasks.remove(taskId)
+                        syncState.latestFirestoreTasks.remove(taskId)
+                        ChildQuestManager.deleteQuest(context, cleanChildUserId, taskId)
+                        if (currentAuthUid.isNotBlank() && currentAuthUid != cleanChildUserId) {
+                            ChildQuestManager.deleteQuest(context, currentAuthUid, taskId)
+                        }
                     }
                     if (newTombstonesFound) {
                         syncState.reconcileAndNotify()
@@ -559,11 +667,42 @@ object FamilyTaskManager {
                 syncState.reconcileAndNotify()
             }
 
+        // 2b. Firestore tombstones listener
+        val firestoreTombstonesReg = db?.collection(COLLECTION_FAMILIES)
+            ?.document(cleanFamilyId)
+            ?.collection(COLLECTION_MEMBERS)
+            ?.document(cleanChildUserId)
+            ?.collection("tombstones")
+            ?.addSnapshotListener { snapshot, _ ->
+                if (snapshot == null) return@addSnapshotListener
+                var newTombstonesFound = false
+                for (doc in snapshot.documents) {
+                    val taskId = doc.getString("taskId") ?: doc.id
+                    if (!isTombstoned(context, taskId)) {
+                        addTombstone(context, taskId)
+                        newTombstonesFound = true
+                        Log.i(TAG, "TASK_FIRESTORE_TOMBSTONE_RECEIVED taskId=$taskId childUserId=$cleanChildUserId")
+                    }
+                    syncState.latestRtdbTasks.remove(taskId)
+                    syncState.latestFirestoreTasks.remove(taskId)
+                    ChildQuestManager.deleteQuest(context, cleanChildUserId, taskId)
+                    if (currentAuthUid.isNotBlank() && currentAuthUid != cleanChildUserId) {
+                        ChildQuestManager.deleteQuest(context, currentAuthUid, taskId)
+                    }
+                }
+                if (newTombstonesFound) {
+                    syncState.reconcileAndNotify()
+                }
+            }
+
         return object : ListenerRegistration {
             override fun remove() {
                 activeSyncStates.remove(cleanChildUserId)
                 try {
                     firestoreReg?.remove()
+                } catch (_: Exception) {}
+                try {
+                    firestoreTombstonesReg?.remove()
                 } catch (_: Exception) {}
                 try {
                     if (rtdbRef != null && rtdbListener != null) {
@@ -608,8 +747,8 @@ object FamilyTaskManager {
             return
         }
 
-        if (!photoUri.startsWith("https://") || photoUri.startsWith("file://") || photoUri.startsWith("content://") || photoUri.startsWith("local_proof_")) {
-            Log.e(TAG, "TASK_PROOF_SUBMIT_FAILED taskId=$questId error=invalid_non_https_proof_uri photoUri=$photoUri")
+        if (!photoUri.startsWith("https://") && !photoUri.startsWith("file://") && !photoUri.startsWith("content://") && !photoUri.startsWith("local_proof_")) {
+            Log.e(TAG, "TASK_PROOF_SUBMIT_FAILED taskId=$questId error=invalid_proof_uri photoUri=$photoUri")
             onComplete(false)
             return
         }
@@ -638,6 +777,9 @@ object FamilyTaskManager {
             ?.updateChildren(updates)
             ?.addOnSuccessListener {
                 Log.i(TAG, "TASK_PROOF_UPDATE_RTDB_SUCCESS taskId=$questId")
+            }
+            ?.addOnFailureListener { e ->
+                Log.e(TAG, "TASK_PROOF_UPDATE_RTDB_FAILED taskId=$questId error=${e.message}", e)
             }
 
         // 2. Dual-sync to Firestore
@@ -670,16 +812,21 @@ object FamilyTaskManager {
                     }
             }
 
-        // Notify local guardian system
+        // Notify guardian across cloud & local with full family context
+        val proofNotifId = "proof_submitted_${questId}_${now}"
         NotificationManager.addNotification(
             context,
             SystemNotification(
+                id = proofNotifId,
                 title = "Task Photo Verification Required 📷",
                 message = "Photo proof submitted by $childName. Please verify to award stars!",
                 type = NotificationType.TASK_PHOTO_SUBMITTED,
                 childName = childName,
-                childCode = cleanChildUserId,
-                actionData = questId
+                childCode = deviceChildCode,
+                actionData = questId,
+                targetRole = "GUARDIAN",
+                familyId = cleanFamilyId,
+                childUid = cleanChildUserId
             )
         )
 
@@ -784,6 +931,27 @@ object FamilyTaskManager {
         try {
             NotificationManager.deleteNotificationsForQuest(context, cleanTaskId)
         } catch (_: Exception) {}
+
+        if (approve) {
+            val approvedNotif = SystemNotification(
+                id = "task_approved_${cleanTaskId}",
+                title = "Task Approved! 🌟",
+                message = "Awesome job! You earned $rewardStars Stars for completing the task!",
+                type = NotificationType.TASK_APPROVED,
+                childName = "Child",
+                childCode = cleanChildUserId,
+                actionData = cleanTaskId,
+                targetRole = "CHILD",
+                familyId = cleanFamilyId,
+                childUid = cleanChildUserId
+            )
+            try {
+                FirebaseSyncManager.sendNotificationToCloud(approvedNotif)
+                Log.i(TAG, "TASK_APPROVED_NOTIFICATION_DISPATCHED taskId=$cleanTaskId childUserId=$cleanChildUserId")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to dispatch task approved notification to cloud", e)
+            }
+        }
 
         // 3. Dual-sync status update to Firestore
         val db = getDb()

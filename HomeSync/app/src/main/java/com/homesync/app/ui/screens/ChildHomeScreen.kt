@@ -420,7 +420,7 @@ fun ChildHomeScreen(
                     lastProcessedCommandId = cmdId
                     android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_COMMAND_APPLIED childCode=$activeChildId commandId=$cmdId targetChild=$targetChildId commandType=$commandType locked=$locked rem=$rem tot=$tot timestamp=${System.currentTimeMillis()}")
 
-                    if (cmdId.startsWith("LOCK") || commandType == "LOCK") {
+                    if (cmdId.startsWith("LOCK") || commandType.contains("LOCK")) {
                         android.util.Log.i("HomeSyncLatency", "LOCK_STATE_CHANGED childId=$activeChildId targetChild=$targetChildId locked=true timestamp=${System.currentTimeMillis()}")
                         android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_LOCK_STATE locked=true reason=REMOTE_LOCK")
                         isLocked = true
@@ -430,7 +430,7 @@ fun ChildHomeScreen(
                         ScreenTimeManager.saveRemainingSeconds(context, activeChildId, 0)
                         onLockout()
                         return@listenScreenTimeWithCommandDetails
-                    } else if (cmdId.startsWith("UNLOCK") || commandType == "UNLOCK") {
+                    } else if (cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK")) {
                         android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=REMOTE_UNLOCK")
                         isLocked = false
                         ParentalControlManager.setCurfewOverride(context, activeChildId, true)
@@ -516,8 +516,9 @@ fun ChildHomeScreen(
                 }
 
                 // Normal state sync
-                isLocked = locked
-                if (locked) {
+                val isEffectivelyLocked = locked || ScreenTimeManager.isRemoteLocked(context, activeChildId) || ScreenTimeManager.isDeviceLocked(context, activeChildId)
+                isLocked = isEffectivelyLocked
+                if (isEffectivelyLocked) {
                     android.util.Log.i("HomeSyncLatency", "LOCK_STATE_CHANGED childId=$activeChildId targetChild=$targetChildId locked=true timestamp=${System.currentTimeMillis()}")
                     android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_LOCK_STATE locked=true reason=REMOTE_LOCK")
                     remainingSeconds = 0
@@ -1036,7 +1037,7 @@ fun ChildHomeScreen(
                     .background(
                         androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(DeepNavy, BrandBlue, InfoCyan))
                     )
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1045,8 +1046,9 @@ fun ChildHomeScreen(
                 ) {
                     // Left: Level & XP Badge
                     Row(
+                        modifier = Modifier.weight(1f, fill = false),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Surface(
                             shape = RoundedCornerShape(50),
@@ -1054,12 +1056,12 @@ fun ChildHomeScreen(
                             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(15.dp))
-                                Text("Lvl 3 Hero", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                Icon(Icons.Filled.EmojiEvents, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(14.dp))
+                                Text("Lvl 3 Hero", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, maxLines = 1)
                             }
                         }
 
@@ -1070,7 +1072,7 @@ fun ChildHomeScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .width(64.dp)
+                                    .width(52.dp)
                                     .height(6.dp)
                                     .clip(RoundedCornerShape(3.dp))
                                     .background(Color.White.copy(alpha = 0.25f))
@@ -1082,14 +1084,15 @@ fun ChildHomeScreen(
                                         .background(WarningAmber, RoundedCornerShape(3.dp))
                                 )
                             }
-                            Text("$currentXp/500", color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                            Text("$currentXp/500", color = Color.White.copy(alpha = 0.9f), fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
                         }
                     }
 
                     // Right: Star Balance Wallet & Streak Badge
                     Row(
+                        modifier = Modifier.wrapContentWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Surface(
                             shape = RoundedCornerShape(50),
@@ -1098,12 +1101,12 @@ fun ChildHomeScreen(
                             modifier = Modifier.clickable { showStarShopModal = true }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
-                                Text("⭐", fontSize = 12.sp)
-                                Text("$starBalance", color = Color(0xFFFDE68A), fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                                Text("⭐", fontSize = 11.sp)
+                                Text("$starBalance", color = Color(0xFFFDE68A), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, maxLines = 1)
                             }
                         }
 
@@ -1112,12 +1115,12 @@ fun ChildHomeScreen(
                             color = WarningAmber.copy(alpha = 0.25f)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
                                 Text("🔥", fontSize = 11.sp)
-                                Text("5 Days", color = Color(0xFFFDE68A), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                Text("5 Days", color = Color(0xFFFDE68A), fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, maxLines = 1)
                             }
                         }
                     }
@@ -1290,19 +1293,19 @@ fun ChildHomeScreen(
                                     color = Color(0xFFEFF6FF),
                                     shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
                                 )
-                                .padding(horizontal = 20.dp, vertical = 20.dp)
+                                .padding(horizontal = 16.dp, vertical = 14.dp)
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 // Greeting Row (Responsive Layout)
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // 1. Avatar (Fixed compact size: 46dp)
+                                    // 1. Avatar (Fixed compact size: 42dp)
                                     Box(
                                         modifier = Modifier
-                                            .size(46.dp)
+                                            .size(42.dp)
                                             .clip(CircleShape)
                                             .background(BrandBlue)
                                             .border(2.dp, Color.White.copy(alpha = 0.9f), CircleShape)
@@ -1321,7 +1324,7 @@ fun ChildHomeScreen(
                                                 text = activeChildName.take(1).uppercase(),
                                                 color = Color.White,
                                                 fontWeight = FontWeight.Bold,
-                                                fontSize = 18.sp
+                                                fontSize = 17.sp
                                             )
                                         }
                                     }
@@ -1351,7 +1354,7 @@ fun ChildHomeScreen(
                                     // 3. Header Action Buttons
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         // SHOP Button
                                         Surface(
@@ -1359,14 +1362,14 @@ fun ChildHomeScreen(
                                             color = WarningAmberBg,
                                             shape = RoundedCornerShape(50),
                                             border = BorderStroke(1.dp, Color(0xFFFDE68A)),
-                                            modifier = Modifier.height(36.dp)
+                                            modifier = Modifier.height(32.dp)
                                         ) {
                                             Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp),
+                                                modifier = Modifier.padding(horizontal = 8.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(3.dp)
                                             ) {
-                                                Text("⭐", fontSize = 12.sp)
+                                                Text("⭐", fontSize = 11.sp)
                                                 Text(
                                                     text = "SHOP",
                                                     color = WarningAmber,
@@ -1385,7 +1388,7 @@ fun ChildHomeScreen(
                                             color = CardWhite,
                                             shape = CircleShape,
                                             border = BorderStroke(1.dp, BorderGrey.copy(alpha = 0.5f)),
-                                            modifier = Modifier.size(36.dp)
+                                            modifier = Modifier.size(32.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                                 BadgedBox(
@@ -1406,7 +1409,7 @@ fun ChildHomeScreen(
                                                         Icons.Filled.Notifications,
                                                         contentDescription = "Notifications",
                                                         tint = TextPrimary,
-                                                        modifier = Modifier.size(18.dp)
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                 }
                                             }
@@ -1418,14 +1421,14 @@ fun ChildHomeScreen(
                                             color = CardWhite,
                                             shape = CircleShape,
                                             border = BorderStroke(1.dp, BorderGrey.copy(alpha = 0.5f)),
-                                            modifier = Modifier.size(36.dp)
+                                            modifier = Modifier.size(32.dp)
                                         ) {
                                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                                 Icon(
                                                     imageVector = Icons.Filled.Logout,
                                                     contentDescription = "Logout",
                                                     tint = RestrictionRed,
-                                                    modifier = Modifier.size(18.dp)
+                                                    modifier = Modifier.size(16.dp)
                                                 )
                                             }
                                         }
@@ -1451,11 +1454,14 @@ fun ChildHomeScreen(
                                     border = BorderStroke(1.dp, bannerBorderColor)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(16.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Row(
+                                            modifier = Modifier.weight(1f).padding(end = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
@@ -1468,12 +1474,14 @@ fun ChildHomeScreen(
                                             ) {
                                                 Icon(Icons.Filled.Shield, contentDescription = null, tint = bannerIconTint)
                                             }
-                                            Column {
+                                            Column(modifier = Modifier.weight(1f, fill = false)) {
                                                 Text(
                                                     if (isBannerGuardianConnected) "You're safe" else if (isBannerPaired) "Guardian Offline" else "Guardian Not Connected",
-                                                    fontSize = 16.sp,
+                                                    fontSize = 15.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = TextPrimary
+                                                    color = TextPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                                 val statusSub = when {
                                                     isBannerGuardianConnected && bannerGuardianName.isNotBlank() && !bannerGuardianName.equals("Guardian", ignoreCase = true) ->
@@ -1492,7 +1500,9 @@ fun ChildHomeScreen(
                                                     statusSub,
                                                     fontSize = 12.sp,
                                                     color = bannerBadgeText,
-                                                    fontWeight = FontWeight.Bold
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
                                         }
@@ -1544,13 +1554,15 @@ fun ChildHomeScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        verticalAlignment = Alignment.Top
                                     ) {
                                          // 1. Guardian Card (Shows real name when paired, or 'Not Paired' when waiting)
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
-                                            modifier = Modifier.clickable { showManageGuardiansModal = true }
+                                            modifier = Modifier
+                                                .width(76.dp)
+                                                .clickable { showManageGuardiansModal = true }
                                         ) {
                                             val guardianUid = remember(approvedGuardian, familyMembers) {
                                                 approvedGuardian?.userId?.trim()?.takeIf { it.isNotBlank() }
@@ -1620,7 +1632,8 @@ fun ChildHomeScreen(
                                                 color = TextPrimary,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.padding(top = 4.dp).widthIn(max = 80.dp)
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.padding(top = 4.dp).fillMaxWidth()
                                             )
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
@@ -1662,7 +1675,10 @@ fun ChildHomeScreen(
                                                     ?: (if (siblingUid != cCode) com.homesync.app.util.ProfileImageManager.getProfileImage(context, key = "user_$cCode") else null)
                                                     ?: com.homesync.app.util.ProfileImageManager.getProfileImage(context, key = "child_$cCode")
                                             }
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                modifier = Modifier.width(76.dp)
+                                            ) {
                                                 Box(
                                                     modifier = Modifier
                                                         .size(56.dp)
@@ -1696,13 +1712,16 @@ fun ChildHomeScreen(
                                                     color = TextPrimary,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(top = 4.dp).widthIn(max = 80.dp)
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.padding(top = 4.dp).fillMaxWidth()
                                                 )
                                                 Text(
                                                     text = if (isCurrentChild) "You" else "Sibling",
                                                     fontSize = 10.sp,
                                                     color = if (isCurrentChild) SafeGreen else TextSecondary,
-                                                    fontWeight = FontWeight.Bold
+                                                    fontWeight = FontWeight.Bold,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.fillMaxWidth()
                                                 )
                                             }
                                         }
@@ -2572,6 +2591,22 @@ fun ChildHomeScreen(
             childUserId = taskChildId,
             onDismiss = { selectedQuestForProof = null },
             onSubmitProof = { photoLabel, photoUri ->
+                val now = System.currentTimeMillis()
+                activeQuests = activeQuests.map {
+                    if (it.id == quest.id) {
+                        it.copy(
+                            status = QuestStatus.SUBMITTED,
+                            photoProofLabel = photoLabel,
+                            photoProofUri = photoUri,
+                            submittedAt = now,
+                            updatedAt = now
+                        )
+                    } else it
+                }
+                if (activeChildId.isNotBlank()) {
+                    ChildQuestManager.saveQuestsFromCloud(context, activeChildId, activeQuests)
+                }
+
                 if (effFamilyId.isNotBlank()) {
                     FamilyTaskManager.submitTaskProof(
                         context = context,
@@ -2614,18 +2649,55 @@ private fun ChildProgressCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.defaultMinSize(minHeight = 98.dp),
         colors = CardDefaults.cardColors(containerColor = CardWhite),
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, BorderGrey)
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(title, fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-                Text(progressText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    title,
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    progressText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrandBlue,
+                    maxLines = 1
+                )
             }
-            Text(value, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
-            Text(subtitle, fontSize = 11.sp, color = SafeGreen, fontWeight = FontWeight.Medium)
+            Text(
+                value,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                fontSize = 11.sp,
+                color = SafeGreen,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -2756,7 +2828,10 @@ private fun ChildQuestItemCard(
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isApproved) Color(0xFF166534) else TextPrimary,
-                    textDecoration = if (isApproved) TextDecoration.LineThrough else TextDecoration.None
+                    textDecoration = if (isApproved) TextDecoration.LineThrough else TextDecoration.None,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                 )
                 Surface(
                     shape = RoundedCornerShape(50),
@@ -2781,7 +2856,10 @@ private fun ChildQuestItemCard(
                     text = "${quest.dueTime} • +${quest.rewardStars} Stars ⭐",
                     fontSize = 12.sp,
                     color = BrandBlue,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 6.dp)
                 )
 
                 if (quest.photoProofLabel.isNotBlank()) {
@@ -2789,7 +2867,9 @@ private fun ChildQuestItemCard(
                         text = "📷 Proof: ${quest.photoProofLabel}",
                         fontSize = 11.sp,
                         color = TextSecondary,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

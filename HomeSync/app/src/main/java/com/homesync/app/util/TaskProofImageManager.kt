@@ -198,6 +198,9 @@ object TaskProofImageManager {
     ): Bitmap? {
         val cached = getProofBitmap(context, imagePath, questId)
         if (cached != null) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                onLoaded(cached)
+            }
             return cached
         }
         val effectivePath = imagePath.trim().ifBlank {

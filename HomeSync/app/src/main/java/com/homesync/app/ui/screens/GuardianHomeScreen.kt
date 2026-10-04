@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -709,7 +710,7 @@ fun GuardianHomeScreen(
                     onTasksUpdated = { childTasks ->
                         android.util.Log.i("GuardianHomeScreen", "TASK_GUARDIAN_UI_UPDATED childUserId=$cUid childCode=$cCode count=${childTasks.size}")
                         for (task in childTasks) {
-                            if (task.status == QuestStatus.SUBMITTED && task.photoProofUri.startsWith("https://")) {
+                            if (task.status == QuestStatus.SUBMITTED && task.photoProofUri.isNotBlank()) {
                                 android.util.Log.i("GuardianHomeScreen", "TASK_GUARDIAN_PROOF_RECEIVED taskId=${task.id} childUserId=$cUid photoProofUri=${task.photoProofUri}")
                                 TaskProofImageManager.loadProofBitmap(context, task.photoProofUri, task.id) { _ ->
                                     android.util.Log.d("GuardianHomeScreen", "TASK_PROOF_PREFETCH_SUCCESS taskId=${task.id}")
@@ -828,7 +829,10 @@ fun GuardianHomeScreen(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    modifier = Modifier.clickable { showGuardianProfileModal = true }
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .padding(end = 8.dp)
+                                        .clickable { showGuardianProfileModal = true }
                                 ) {
                                     WhatsAppProfileAvatar(
                                         bitmap = profileBitmap,
@@ -843,9 +847,13 @@ fun GuardianHomeScreen(
                                             showFullProfileViewer = true
                                         }
                                     )
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f, fill = false)) {
                                         Text("Good evening", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        ) {
                                             Text(
                                                 activeGuardianName,
                                                 fontSize = 18.sp,
@@ -898,11 +906,18 @@ fun GuardianHomeScreen(
                                         }
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Text("👨‍👩‍👧‍👦 Family: $activeFamilyId", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                            Text(
+                                                "👨‍👩‍👧‍👦 Family: $activeFamilyId",
+                                                color = Color(0xFF38BDF8),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                             Icon(Icons.Filled.ContentCopy, contentDescription = "Copy", tint = Color(0xFF38BDF8), modifier = Modifier.size(13.dp))
                                         }
                                     }
@@ -914,12 +929,12 @@ fun GuardianHomeScreen(
                                     border = BorderStroke(1.dp, Color(0xFFBBF7D0))
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = SafeGreen, modifier = Modifier.size(14.dp))
-                                        Text("Family Connected", color = SafeGreen, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        Text("Family Connected", color = SafeGreen, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
                                     }
                                 }
                             }
@@ -991,8 +1006,8 @@ fun GuardianHomeScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.Top
                                 ) {
                                     if (effectiveChildren.isEmpty()) {
                                         Text(
@@ -1014,7 +1029,9 @@ fun GuardianHomeScreen(
                                             )
                                             Column(
                                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                                modifier = Modifier.clickable {
+                                                modifier = Modifier
+                                                    .width(76.dp)
+                                                    .clickable {
                                                     activeChildCode = childCode
                                                     selectedChildUid = childUid
                                                     childQuestsList = if (activeFamilyId.isNotBlank()) {
@@ -1057,9 +1074,17 @@ fun GuardianHomeScreen(
                                                     color = TextPrimary,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.padding(top = 4.dp).widthIn(max = 80.dp)
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.padding(top = 4.dp).fillMaxWidth()
                                                 )
-                                                Text(if (isSelected) "Active" else "Safe", fontSize = 10.sp, color = if (isSelected) BrandBlue else SafeGreen, fontWeight = FontWeight.Medium)
+                                                Text(
+                                                    if (isSelected) "Active" else "Safe",
+                                                    fontSize = 10.sp,
+                                                    color = if (isSelected) BrandBlue else SafeGreen,
+                                                    fontWeight = FontWeight.Medium,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
                                             }
                                         }
                                     }
@@ -1067,7 +1092,9 @@ fun GuardianHomeScreen(
                                     // Add Child Button in Family Members section
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.clickable { showPairChildDialog = true }
+                                        modifier = Modifier
+                                            .width(76.dp)
+                                            .clickable { showPairChildDialog = true }
                                     ) {
                                         Box(
                                             modifier = Modifier
@@ -1079,8 +1106,8 @@ fun GuardianHomeScreen(
                                         ) {
                                             Icon(Icons.Filled.Add, contentDescription = "Add Member", tint = TextSecondary)
                                         }
-                                        Text("Add", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = TextSecondary, modifier = Modifier.padding(top = 4.dp))
-                                        Text(" ", fontSize = 10.sp)
+                                        Text("Add", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = TextSecondary, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp).fillMaxWidth())
+                                        Text(" ", fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                                     }
                                 }
                             }
@@ -1591,8 +1618,8 @@ fun GuardianHomeScreen(
                                                         android.util.Log.i("HomeSyncLatency", "LOCK_BUTTON_CLICK childCode=$childCode locked=$newLock timestamp=${System.currentTimeMillis()}")
                                                         ScreenTimeManager.setDeviceLocked(context, childCode, newLock)
                                                         val newRem = if (!newLock) {
-                                                            val updated = ScreenTimeManager.getRemainingSeconds(context, childCode)
-                                                            if (updated > 0) updated else 1800
+                                                             val updated = ScreenTimeManager.getRemainingSeconds(context, childCode)
+                                                             if (updated > 0) updated else 1800
                                                         } else 0
                                                         val updatedState = childState.copy(isLocked = newLock, remainingSeconds = newRem)
                                                         screenTimeByChild = screenTimeByChild + (childCode to updatedState)
@@ -1608,10 +1635,16 @@ fun GuardianHomeScreen(
                                                     },
                                                     colors = ButtonDefaults.buttonColors(containerColor = if (childLocked) SafeGreen else RestrictionRed),
                                                     shape = RoundedCornerShape(10.dp),
-                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                                    modifier = Modifier.weight(1.2f)
+                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                                    modifier = Modifier.weight(1.35f)
                                                 ) {
-                                                    Text(if (childLocked) "Unlock $childName" else "Lock $childName", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    Text(
+                                                        if (childLocked) "Unlock $childName" else "Lock $childName",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
                                                 }
 
                                                 Button(
@@ -1637,10 +1670,10 @@ fun GuardianHomeScreen(
                                                     },
                                                     colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                                                     shape = RoundedCornerShape(10.dp),
-                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                                    modifier = Modifier.weight(0.9f)
+                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                                    modifier = Modifier.weight(0.82f)
                                                 ) {
-                                                    Text("+15m", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    Text("+15m", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                                 }
 
                                                 Button(
@@ -1666,10 +1699,10 @@ fun GuardianHomeScreen(
                                                     },
                                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
                                                     shape = RoundedCornerShape(10.dp),
-                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                                    modifier = Modifier.weight(0.9f)
+                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                                    modifier = Modifier.weight(0.82f)
                                                 ) {
-                                                    Text("+30m", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    Text("+30m", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                                 }
                                             }
 
@@ -1698,7 +1731,13 @@ fun GuardianHomeScreen(
                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                Text("🔄 Reset $childName to 6 Hours", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    "🔄 Reset $childName to 6 Hours",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
                                             }
                                         }
                                     }
@@ -2135,13 +2174,16 @@ fun GuardianHomeScreen(
                                     modifier = Modifier.padding(12.dp),
                                     verticalAlignment = Alignment.Top,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
+                                 ) {
                                     val iconVector = when (notif.type) {
                                         NotificationType.TASK_PHOTO_SUBMITTED -> Icons.Filled.PhotoCamera
                                         NotificationType.CHILD_SAFE_CHECKIN -> Icons.Filled.CheckCircle
                                         NotificationType.SOS_EMERGENCY -> Icons.Filled.Warning
                                         NotificationType.SAFE_ZONE_EVENT -> Icons.Filled.Place
                                         NotificationType.FAMILY_JOIN_REQUEST -> Icons.Filled.GroupAdd
+                                        NotificationType.TASK_ASSIGNED -> Icons.Filled.Assignment
+                                        NotificationType.TASK_APPROVED -> Icons.Filled.Star
+                                        else -> Icons.Filled.Notifications
                                     }
                                     val iconTint = when (notif.type) {
                                         NotificationType.TASK_PHOTO_SUBMITTED -> WarningAmber
@@ -2149,6 +2191,9 @@ fun GuardianHomeScreen(
                                         NotificationType.SOS_EMERGENCY -> RestrictionRed
                                         NotificationType.SAFE_ZONE_EVENT -> BrandBlue
                                         NotificationType.FAMILY_JOIN_REQUEST -> WarningAmber
+                                        NotificationType.TASK_ASSIGNED -> BrandBlue
+                                        NotificationType.TASK_APPROVED -> SafeGreen
+                                        else -> BrandBlue
                                     }
 
                                     Box(
@@ -2866,7 +2911,7 @@ private fun GlanceCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier,
+        modifier = modifier.defaultMinSize(minHeight = 98.dp),
         colors = CardDefaults.cardColors(containerColor = CardWhite),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderGrey),
@@ -2881,7 +2926,15 @@ private fun GlanceCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(title, fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                Text(
+                    title,
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 4.dp)
+                )
                 Box(
                     modifier = Modifier
                         .size(32.dp)
@@ -2892,8 +2945,8 @@ private fun GlanceCard(
                     Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
                 }
             }
-            Text(value, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
-            Text(subtitle, fontSize = 11.sp, color = SafeGreen, fontWeight = FontWeight.Medium)
+            Text(value, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, fontSize = 11.sp, color = SafeGreen, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -4071,7 +4124,8 @@ fun GuardianTasksTabView(
                                                 childUserId = safeUid,
                                                 title = newTaskTitle.trim(),
                                                 rewardStars = stars,
-                                                dueTime = dueTime
+                                                dueTime = dueTime,
+                                                childName = child.name
                                             ) { res ->
                                                 res.onSuccess { createdTask ->
                                                     android.util.Log.i("GuardianHomeScreen", "TASK_CREATE_LOCAL_STATE_UPDATED taskId=${createdTask.id} childUserId=$safeUid")
@@ -4103,7 +4157,8 @@ fun GuardianTasksTabView(
                                             childUserId = safeUid,
                                             title = newTaskTitle.trim(),
                                             rewardStars = stars,
-                                            dueTime = dueTime
+                                            dueTime = dueTime,
+                                            childName = targetChild?.name ?: "Child"
                                         ) { res ->
                                             res.onSuccess { createdTask ->
                                                 android.util.Log.i("GuardianHomeScreen", "TASK_CREATE_LOCAL_STATE_UPDATED taskId=${createdTask.id} childUserId=$safeUid")

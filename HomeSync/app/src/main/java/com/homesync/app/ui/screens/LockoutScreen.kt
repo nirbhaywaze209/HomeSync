@@ -4,7 +4,9 @@ import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
@@ -29,6 +31,7 @@ import com.homesync.app.ui.theme.NightSkyMid
 import com.homesync.app.ui.theme.NightStarWhite
 import com.homesync.app.ui.theme.NightTextMuted
 import com.homesync.app.util.ScreenTimeManager
+import com.homesync.app.util.ParentalControlManager
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,19 +95,23 @@ fun LockoutScreen(
                     return@listenScreenTimeWithCommandDetails
                 }
 
-                if (!locked || cmdId.startsWith("UNLOCK") || cmdId.startsWith("GRANT_") || cmdId.startsWith("SET_LIMIT") || commandType == "UNLOCK" || commandType == "EXTRA_TIME" || commandType == "GRANT_EXTRA_TIME" || commandType == "SET_DAILY_LIMIT") {
+                val isExplicitUnlock = cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK") ||
+                        cmdId.startsWith("GRANT_") || commandType.contains("EXTRA_TIME") || commandType.contains("GRANT") ||
+                        cmdId.startsWith("SET_LIMIT") || commandType.contains("SET_DAILY_LIMIT")
+
+                if (isExplicitUnlock) {
                     val actualUsed = if (ScreenTimeManager.hasUsageStatsPermission(context)) {
                         ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, cleanId).coerceAtLeast(0)
                     } else {
                         ScreenTimeManager.getUsedSeconds(context, cleanId)
                     }
                     val currentStoredTot = ScreenTimeManager.getTotalAllowance(context, cleanId)
-                    val (finalTot, finalRem) = if (cmdId.startsWith("SET_LIMIT") || commandType == "SET_DAILY_LIMIT") {
+                    val (finalTot, finalRem) = if (cmdId.startsWith("SET_LIMIT") || commandType.contains("SET_DAILY_LIMIT")) {
                         val allowanceFromCmd = cmdId.split("_").mapNotNull { it.toIntOrNull() }.firstOrNull { it in 60..86400 }
                         val newAllowance = allowanceFromCmd ?: (if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS)
                         val safeRem = (newAllowance - actualUsed).coerceAtLeast(0)
                         Pair(newAllowance, safeRem)
-                    } else if (cmdId.startsWith("GRANT_") || commandType == "EXTRA_TIME" || commandType == "GRANT_EXTRA_TIME") {
+                    } else if (cmdId.startsWith("GRANT_") || commandType.contains("EXTRA_TIME") || commandType.contains("GRANT")) {
                         val extraSec = cmdId.split("_").mapNotNull { it.toIntOrNull() }.firstOrNull { it in 60..86400 }
                             ?: (if (tot > 0 && currentStoredTot > 0 && tot > currentStoredTot) (tot - currentStoredTot) else 1800)
                         val baseTot = if (currentStoredTot > 0) currentStoredTot else (if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS)
@@ -139,11 +146,14 @@ fun LockoutScreen(
                         remainingSeconds = finalRem
                         isLocked = true
                     }
-                } else if (locked || cmdId.startsWith("LOCK") || commandType == "LOCK") {
+                } else if (locked || cmdId.startsWith("LOCK") || commandType.contains("LOCK") || ScreenTimeManager.isRemoteLocked(context, cleanId)) {
                     isLocked = true
                     remainingSeconds = 0
+                    ParentalControlManager.setCurfewOverride(context, cleanId, false)
                     ScreenTimeManager.setLocalLocked(context, cleanId, true)
-                    ScreenTimeManager.saveLastCommand(context, cleanId, cmdId, cmdTimestamp, true)
+                    if (cmdId.isNotBlank() && cmdId != "NONE") {
+                        ScreenTimeManager.saveLastCommand(context, cleanId, cmdId, cmdTimestamp, true)
+                    }
                 }
             }
         }
@@ -159,8 +169,9 @@ fun LockoutScreen(
             if (cleanId.isNotBlank()) {
                 ScreenTimeManager.checkAndApplyDailyReset(context, cleanId)
             }
-            val locked = ScreenTimeManager.isDeviceLocked(context, childId)
-            val rem = ScreenTimeManager.getRemainingSeconds(context, childId)
+            val remoteLocked = ScreenTimeManager.isRemoteLocked(context, cleanId)
+            val locked = remoteLocked || ScreenTimeManager.isDeviceLocked(context, cleanId)
+            val rem = if (locked) 0 else ScreenTimeManager.getRemainingSeconds(context, cleanId)
             isLocked = locked
             remainingSeconds = rem
             if (!locked && rem > 0) {
@@ -237,17 +248,20 @@ fun LockoutScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(32.dp),
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(
                     text = "🌙",
-                    fontSize = 72.sp
+                    fontSize = 56.sp
                 )
                 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
                     verticalAlignment = Alignment.Bottom,
@@ -255,30 +269,30 @@ fun LockoutScreen(
                 ) {
                     Text(
                         text = timeFormat.format(currentTime),
-                        fontSize = 72.sp,
+                        fontSize = 62.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = NightStarWhite,
-                        letterSpacing = 4.sp
+                        letterSpacing = 2.sp
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Column(
                         horizontalAlignment = Alignment.Start
                     ) {
                         Text(
                             text = secondsFormat.format(currentTime),
-                            fontSize = 24.sp,
+                            fontSize = 20.sp,
                             color = NightMoonGlow
                         )
                         Text(
                             text = amPmFormat.format(currentTime),
-                            fontSize = 24.sp,
+                            fontSize = 20.sp,
                             color = NightMoonGlow,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 val rules = remember(childId) { com.homesync.app.util.ParentalControlManager.getRules(context, childId) }
                 val isCurfew = com.homesync.app.util.ParentalControlManager.isCurfewActiveNow(rules, context)
@@ -292,22 +306,22 @@ fun LockoutScreen(
                 
                 Text(
                     text = lockoutReason,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     color = NightTextMuted,
                     textAlign = TextAlign.Center
                 )
                 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 
                 Surface(
                     color = NightSkyMid.copy(alpha = 0.6f),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
                         if (!isLocked && remainingSeconds > 0) {
                             Text(
                                 text = "🟢 Access Restored! Time remaining: ${ScreenTimeManager.formatTime(remainingSeconds)}",
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF16A34A),
                                 textAlign = TextAlign.Center
@@ -321,7 +335,7 @@ fun LockoutScreen(
                             }
                             Text(
                                 text = lockedUntil,
-                                fontSize = 20.sp,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = NightStarWhite,
                                 textAlign = TextAlign.Center
@@ -330,14 +344,14 @@ fun LockoutScreen(
                     }
                 }
                 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.heightIn(min = 20.dp).weight(1f, fill = false))
                 
                 if (!isLocked && remainingSeconds > 0) {
                     Button(
                         onClick = onUnlock,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp),
+                            .height(48.dp),
                         shape = RoundedCornerShape(50),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFF16A34A),
@@ -346,7 +360,7 @@ fun LockoutScreen(
                     ) {
                         Text(
                             text = "Open Dashboard Now 🚀",
-                            fontSize = 16.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -369,7 +383,7 @@ fun LockoutScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp),
+                                .height(48.dp),
                             shape = RoundedCornerShape(50),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF2563EB),
@@ -378,7 +392,7 @@ fun LockoutScreen(
                         ) {
                             Text(
                                 text = "Request +15m from Guardian ⏳",
-                                fontSize = 15.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -404,7 +418,7 @@ fun LockoutScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(52.dp),
+                                .height(48.dp),
                             shape = RoundedCornerShape(50),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = NightEmergencyRed,
@@ -414,19 +428,19 @@ fun LockoutScreen(
                             Icon(
                                 imageVector = Icons.Filled.Phone,
                                 contentDescription = "Emergency Call",
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Emergency Call",
-                                fontSize = 15.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

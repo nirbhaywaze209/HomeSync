@@ -669,7 +669,8 @@ object ScreenTimeManager {
             isLocked = isLocallyLocked || quotaExhausted,
             totalAllowance = currentAllowance,
             usedSeconds = actualUsedSeconds,
-            date = today
+            date = today,
+            sourceRole = "CHILD"
         )
     }
 

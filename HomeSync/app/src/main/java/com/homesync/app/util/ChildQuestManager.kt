@@ -324,6 +324,19 @@ object ChildQuestManager {
         )
         current.add(newQuest)
         saveQuests(context, childId, current)
+
+        val notif = SystemNotification(
+            id = "quest_assigned_${newQuest.id}",
+            title = "New Quest Assigned! 📋",
+            message = "New task: \"${newQuest.title}\" • Earn ${newQuest.rewardStars} Stars! (${newQuest.dueTime})",
+            type = NotificationType.TASK_ASSIGNED,
+            childName = "Child",
+            childCode = childId,
+            actionData = newQuest.id,
+            targetRole = "CHILD"
+        )
+        NotificationManager.addNotification(context, notif)
+
         return current
     }
 

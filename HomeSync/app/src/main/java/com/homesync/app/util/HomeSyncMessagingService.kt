@@ -88,31 +88,55 @@ class HomeSyncMessagingService : FirebaseMessagingService() {
         val notifType = data["type"] ?: remoteMessage.notification?.tag ?: "SOS_EMERGENCY"
         val eventId = data["eventId"] ?: System.currentTimeMillis().toString()
 
-        Log.i(TAG, "SOS_FCM_NOTIFICATION_RECEIVED eventId=$eventId type=$notifType")
+        Log.i(TAG, "FCM_NOTIFICATION_RECEIVED eventId=$eventId type=$notifType")
 
         if (isEventProcessed(applicationContext, eventId)) {
-            Log.i(TAG, "SOS_FCM_DUPLICATE_IGNORED eventId=$eventId")
+            Log.i(TAG, "FCM_DUPLICATE_IGNORED eventId=$eventId")
             return
         }
 
         markEventProcessed(applicationContext, eventId)
 
-        val title = data["title"] ?: remoteMessage.notification?.title ?: "EMERGENCY SOS ALERT"
-        val body = data["message"] ?: data["body"] ?: remoteMessage.notification?.body ?: "Emergency alert received from child!"
+        val title = data["title"] ?: remoteMessage.notification?.title ?: "HomeSync Alert"
+        val body = data["message"] ?: data["body"] ?: remoteMessage.notification?.body ?: ""
         val childName = data["childName"] ?: "Child"
         val childCode = data["childCode"] ?: ""
         val familyId = data["familyId"] ?: ""
 
-        showEmergencyNotification(
-            context = applicationContext,
-            eventId = eventId,
-            title = title,
-            message = body,
-            childName = childName,
-            childCode = childCode,
-            familyId = familyId
-        )
-        Log.i(TAG, "SOS_FCM_NOTIFICATION_DISPLAYED eventId=$eventId")
+        if (notifType.equals("SOS_EMERGENCY", ignoreCase = true)) {
+            showEmergencyNotification(
+                context = applicationContext,
+                eventId = eventId,
+                title = title.ifBlank { "EMERGENCY SOS ALERT" },
+                message = body.ifBlank { "Emergency alert received from child!" },
+                childName = childName,
+                childCode = childCode,
+                familyId = familyId
+            )
+            Log.i(TAG, "SOS_FCM_NOTIFICATION_DISPLAYED eventId=$eventId")
+        } else {
+            val parsedType = try {
+                NotificationType.valueOf(notifType)
+            } catch (_: Exception) {
+                NotificationType.CHILD_SAFE_CHECKIN
+            }
+            val targetRole = data["targetRole"] ?: "CHILD"
+            val systemNotif = SystemNotification(
+                id = eventId,
+                title = title.ifBlank { "Notification" },
+                message = body,
+                timestamp = System.currentTimeMillis(),
+                type = parsedType,
+                childName = childName,
+                childCode = childCode,
+                targetRole = targetRole,
+                familyId = familyId,
+                childUid = data["childUid"] ?: "",
+                actionData = data["actionData"] ?: ""
+            )
+            com.homesync.app.util.NotificationManager.addNotificationFromCloud(applicationContext, systemNotif)
+            Log.i(TAG, "NON_EMERGENCY_FCM_NOTIFICATION_ROUTED eventId=$eventId type=$notifType")
+        }
     }
 
     private fun showEmergencyNotification(

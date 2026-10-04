@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.homesync.app.util.NotificationManager.ensureChannels(applicationContext)
         com.homesync.app.util.HomeSyncMessagingService.ensureEmergencyChannel(applicationContext)
 
         // Request POST_NOTIFICATIONS on Android 13+
@@ -161,7 +162,10 @@ class MainActivity : ComponentActivity() {
 
                                 val nextScreen = when {
                                     role == FamilyRole.GUARDIAN && fId.isNotBlank() && isApproved -> "GUARDIAN"
-                                    role == FamilyRole.CHILD && fId.isNotBlank() && isApproved -> "CHILD"
+                                    role == FamilyRole.CHILD && fId.isNotBlank() && isApproved -> {
+                                        val cleanDevId = ChildIdManager.getDeviceChildId(context)
+                                        if (ScreenTimeManager.isRemoteLocked(context, cleanDevId) || ScreenTimeManager.isDeviceLocked(context, cleanDevId)) "LOCKED" else "CHILD"
+                                    }
                                     else -> "FAMILY_SETUP"
                                 }
                                 currentScreen = nextScreen
@@ -175,14 +179,14 @@ class MainActivity : ComponentActivity() {
             }
 
             val devChildId = if (currentChildId.isNotBlank()) currentChildId else ChildIdManager.getDeviceChildId(context)
-            val isChild = (userAge in 1..15) || currentScreen == "CHILD"
+            val isChild = (userAge in 1..15) || currentScreen == "CHILD" || currentScreen == "LOCKED" || FamilyManager.getStoredUserRole(context) == FamilyRole.CHILD
 
             // Enforce authoritative lock state continuously on Child device
             LaunchedEffect(isChild, devChildId) {
                 if (isChild && devChildId.isNotBlank()) {
                     while (true) {
                         kotlinx.coroutines.delay(1000L)
-                        val currentlyLocked = ScreenTimeManager.isDeviceLocked(context, devChildId)
+                        val currentlyLocked = ScreenTimeManager.isRemoteLocked(context, devChildId) || ScreenTimeManager.isDeviceLocked(context, devChildId)
                         if (currentlyLocked && currentScreen != "LOCKED") {
                             currentScreen = "LOCKED"
                         }
@@ -289,7 +293,10 @@ class MainActivity : ComponentActivity() {
 
                                         val targetScreen = when {
                                             finalRole == FamilyRole.GUARDIAN && finalFamilyId.isNotBlank() && finalStatus == MemberStatus.APPROVED -> "GUARDIAN"
-                                            finalRole == FamilyRole.CHILD && finalFamilyId.isNotBlank() && finalStatus == MemberStatus.APPROVED -> "CHILD"
+                                            finalRole == FamilyRole.CHILD && finalFamilyId.isNotBlank() && finalStatus == MemberStatus.APPROVED -> {
+                                                val cleanDevId = ChildIdManager.getDeviceChildId(context)
+                                                if (ScreenTimeManager.isRemoteLocked(context, cleanDevId) || ScreenTimeManager.isDeviceLocked(context, cleanDevId)) "LOCKED" else "CHILD"
+                                            }
                                             else -> "FAMILY_SETUP"
                                         }
 
