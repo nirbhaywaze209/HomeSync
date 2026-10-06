@@ -516,18 +516,30 @@ fun ChildHomeScreen(
                 }
 
                 // Normal state sync
-                val isEffectivelyLocked = locked || ScreenTimeManager.isRemoteLocked(context, activeChildId) || ScreenTimeManager.isDeviceLocked(context, activeChildId)
+                val isExplicitUnlockCmd = commandType.contains("UNLOCK", ignoreCase = true) ||
+                        cmdId.startsWith("UNLOCK") ||
+                        commandType.contains("RESET", ignoreCase = true) ||
+                        cmdId.startsWith("RESET")
+
+                if (isExplicitUnlockCmd || !locked) {
+                    ScreenTimeManager.setRemoteLocked(context, activeChildId, false)
+                    ScreenTimeManager.setLocalLocked(context, activeChildId, false)
+                }
+
+                val isEffectivelyLocked = if (isExplicitUnlockCmd) false else locked
                 isLocked = isEffectivelyLocked
                 if (isEffectivelyLocked) {
                     android.util.Log.i("HomeSyncLatency", "LOCK_STATE_CHANGED childId=$activeChildId targetChild=$targetChildId locked=true timestamp=${System.currentTimeMillis()}")
                     android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_LOCK_STATE locked=true reason=REMOTE_LOCK")
                     remainingSeconds = 0
                     ParentalControlManager.setCurfewOverride(context, activeChildId, false)
+                    ScreenTimeManager.setRemoteLocked(context, activeChildId, true)
                     ScreenTimeManager.setLocalLocked(context, activeChildId, true)
                     ScreenTimeManager.saveRemainingSeconds(context, activeChildId, 0)
                     onLockout()
                 } else {
                     isLocked = false
+                    ScreenTimeManager.setRemoteLocked(context, activeChildId, false)
                     ScreenTimeManager.setLocalLocked(context, activeChildId, false)
                     val actualUsed = if (ScreenTimeManager.hasUsageStatsPermission(context)) {
                         ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, activeChildId).coerceAtLeast(0)
@@ -541,8 +553,8 @@ fun ChildHomeScreen(
                     }
                     val currentStoredTot = ScreenTimeManager.getTotalAllowance(context, activeChildId)
                     val calculatedRem = (currentStoredTot - actualUsed).coerceAtLeast(0)
-                    remainingSeconds = calculatedRem
-                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, calculatedRem)
+                    remainingSeconds = if (rem > 0) rem else calculatedRem
+                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, remainingSeconds)
                     ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
                 }
             }

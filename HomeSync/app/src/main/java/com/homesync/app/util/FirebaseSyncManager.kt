@@ -742,13 +742,28 @@ object FirebaseSyncManager {
     }
 
 
+    private var lastFirestoreLocUploadTime: Long = 0L
+    private var lastFirestoreLocLat: Double = 0.0
+    private var lastFirestoreLocLng: Double = 0.0
+
     /**
      * Uploads the child's live GPS coordinates and resolved address to Cloud Firestore hs_locations.
+     * Throttled to prevent flooding Firestore disk/network quotas, while RTDB provides sub-second live tracking.
      */
     fun uploadChildLocation(childCode: String, childName: String, latitude: Double, longitude: Double, address: String) {
         val cleanCode = childCode.trim().uppercase()
         if (cleanCode.isBlank()) return
         val db = getDb() ?: return
+
+        val now = System.currentTimeMillis()
+        val distMoved = Math.hypot(latitude - lastFirestoreLocLat, longitude - lastFirestoreLocLng) * 111000.0 // approx meters
+        // Throttle Firestore write to once every 25 seconds or if child moved > 25 meters
+        if (now - lastFirestoreLocUploadTime < 25000L && distMoved < 25.0) {
+            return
+        }
+        lastFirestoreLocUploadTime = now
+        lastFirestoreLocLat = latitude
+        lastFirestoreLocLng = longitude
 
         try {
             val payload = mapOf(
@@ -757,7 +772,7 @@ object FirebaseSyncManager {
                 "latitude" to latitude,
                 "longitude" to longitude,
                 "address" to address,
-                "timestamp" to System.currentTimeMillis()
+                "timestamp" to now
             )
 
             db.collection(COLLECTION_LOCATIONS)

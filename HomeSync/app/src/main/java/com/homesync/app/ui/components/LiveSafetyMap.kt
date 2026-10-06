@@ -150,11 +150,19 @@ fun LiveSafetyMap(
         )
     }
 
+    var lastGeocodedLat by remember { mutableDoubleStateOf(0.0) }
+    var lastGeocodedLng by remember { mutableDoubleStateOf(0.0) }
+
     LaunchedEffect(childLocation, childLocationTriple) {
-        if (childLocationTriple?.third != null) {
+        if (childLocationTriple?.third != null && childLocationTriple!!.third.isNotBlank() && childLocationTriple!!.third != "Live Location") {
             resolvedAddress = childLocationTriple!!.third
-        } else {
-            resolvedAddress = LocationHelper.resolveAddressAsync(context, childLocation.latitude, childLocation.longitude)
+        } else if (childLocation.latitude != 0.0 && childLocation.longitude != 0.0) {
+            val dist = Math.hypot(childLocation.latitude - lastGeocodedLat, childLocation.longitude - lastGeocodedLng) * 111000.0
+            if (dist > 30.0 || resolvedAddress.isBlank() || resolvedAddress == "Live Location") {
+                lastGeocodedLat = childLocation.latitude
+                lastGeocodedLng = childLocation.longitude
+                resolvedAddress = LocationHelper.resolveAddressAsync(context, childLocation.latitude, childLocation.longitude)
+            }
         }
     }
 
@@ -255,21 +263,26 @@ fun LiveSafetyMap(
         fullscreenWebView?.evaluateJavascript("setLayer($isSatellite);", null)
     }
 
-    // Auto-recenter smoothly to Child Location 1st (falling back to Guardian) when map opens or GPS updates
+    var hasInitialCentered by remember { mutableStateOf(false) }
+
+    // Auto-recenter smoothly to Child Location 1st (falling back to Guardian) when map first loads
     LaunchedEffect(guardianLocation, childLocation) {
-        val centerLat = if (childLocationTriple != null || (childLocation.latitude != 0.0 && childLocation.longitude != 0.0)) {
-            childLocation.latitude
-        } else {
-            guardianLocation?.latitude ?: childLocation.latitude
-        }
-        val centerLng = if (childLocationTriple != null || (childLocation.latitude != 0.0 && childLocation.longitude != 0.0)) {
-            childLocation.longitude
-        } else {
-            guardianLocation?.longitude ?: childLocation.longitude
-        }
-        if (centerLat != 0.0 && centerLng != 0.0) {
-            embeddedWebView?.evaluateJavascript("recenter($centerLat, $centerLng);", null)
-            fullscreenWebView?.evaluateJavascript("recenter($centerLat, $centerLng);", null)
+        if (!hasInitialCentered) {
+            val centerLat = if (childLocationTriple != null || (childLocation.latitude != 0.0 && childLocation.longitude != 0.0)) {
+                childLocation.latitude
+            } else {
+                guardianLocation?.latitude ?: childLocation.latitude
+            }
+            val centerLng = if (childLocationTriple != null || (childLocation.latitude != 0.0 && childLocation.longitude != 0.0)) {
+                childLocation.longitude
+            } else {
+                guardianLocation?.longitude ?: childLocation.longitude
+            }
+            if (centerLat != 0.0 && centerLng != 0.0) {
+                hasInitialCentered = true
+                embeddedWebView?.evaluateJavascript("recenter($centerLat, $centerLng);", null)
+                fullscreenWebView?.evaluateJavascript("recenter($centerLat, $centerLng);", null)
+            }
         }
     }
 
@@ -1055,13 +1068,14 @@ fun InteractiveLeafletMapView(
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
 
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     loadWithOverviewMode = true
                     useWideViewPort = true
-                    cacheMode = WebSettings.LOAD_DEFAULT
+                    cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
                     setSupportZoom(true)
                     builtInZoomControls = false
                     displayZoomControls = false
@@ -1466,9 +1480,9 @@ private fun generateLeafletHtml(): String {
 
             function recenter(lat, lng) {
                 if (map && lat && lng) {
-                    map.flyTo([lat, lng], 16, {
+                    map.panTo([lat, lng], {
                         animate: true,
-                        duration: 1.2
+                        duration: 0.4
                     });
                 }
             }

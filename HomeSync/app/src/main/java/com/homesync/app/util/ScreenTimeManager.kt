@@ -102,6 +102,15 @@ object ScreenTimeManager {
             .apply()
     }
 
+    fun setRemoteLocked(context: Context, childId: String, locked: Boolean) {
+        val cleanId = cleanChildId(childId)
+        if (cleanId.isBlank()) return
+        getPrefs(context).edit()
+            .putBoolean(getRemoteLockedKey(cleanId), locked)
+            .putBoolean(getLockedKey(cleanId), locked)
+            .apply()
+    }
+
     /**
      * Checks if Usage Access permission is granted in Android Settings.
      */

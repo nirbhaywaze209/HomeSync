@@ -81,6 +81,7 @@ fun LockoutScreen(
                     ScreenTimeManager.saveLastCommand(context, cleanId, cmdId, cmdTimestamp, false)
                     com.homesync.app.util.ParentalControlManager.setCurfewOverride(context, cleanId, true)
                     ScreenTimeManager.setLocalLocked(context, cleanId, false)
+                    ScreenTimeManager.setRemoteLocked(context, cleanId, false)
                     val resetAllowance = if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
                     remainingSeconds = resetAllowance
                     isLocked = false
@@ -131,6 +132,7 @@ fun LockoutScreen(
                         ScreenTimeManager.saveLastCommand(context, cleanId, cmdId, cmdTimestamp, false)
                         com.homesync.app.util.ParentalControlManager.setCurfewOverride(context, cleanId, true)
                         ScreenTimeManager.setLocalLocked(context, cleanId, false)
+                        ScreenTimeManager.setRemoteLocked(context, cleanId, false)
                         remainingSeconds = finalRem
                         isLocked = false
                         ScreenTimeManager.saveTotalAllowance(context, cleanId, finalTot)

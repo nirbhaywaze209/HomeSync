@@ -13,29 +13,25 @@ object FirebaseRealtimeSyncManager {
 
     private const val RTDB_URL = "https://homesync-app-4cee2-default-rtdb.firebaseio.com"
 
-    fun getRtdb(): FirebaseDatabase? {
-        return try {
-            val instance = try {
+    private val rtdbInstance: FirebaseDatabase? by lazy {
+        try {
+            val db = try {
                 FirebaseDatabase.getInstance(RTDB_URL)
-            } catch (ex: Exception) {
-                android.util.Log.e("FirebaseSyncManager", "Failed to get instance with RTDB_URL", ex)
+            } catch (_: Exception) {
                 FirebaseDatabase.getInstance()
             }
-            try { instance.setPersistenceEnabled(true) } catch (_: Exception) {}
-            try { instance.goOnline() } catch (_: Exception) {}
-            try { instance.setLogLevel(com.google.firebase.database.Logger.Level.DEBUG) } catch (_: Exception) {}
-            instance
+            try { db.setPersistenceEnabled(true) } catch (_: Exception) {}
+            try { db.goOnline() } catch (_: Exception) {}
+            // Suppress verbose debug logs to keep UI running lag-free and prevent logcat saturation
+            try { db.setLogLevel(com.google.firebase.database.Logger.Level.NONE) } catch (_: Exception) {}
+            db
         } catch (e: Exception) {
-            try {
-                val fallback = FirebaseDatabase.getInstance(RTDB_URL)
-                try { fallback.goOnline() } catch (_: Exception) {}
-                fallback
-            } catch (ex: Exception) {
-                Log.e(TAG, "Error obtaining Firebase Realtime Database instance", ex)
-                null
-            }
+            Log.e(TAG, "Error obtaining Firebase Realtime Database instance", e)
+            null
         }
     }
+
+    fun getRtdb(): FirebaseDatabase? = rtdbInstance
 
     /**
      * Dual-Sync Guardian profile to Realtime Database & Firestore with HD Photo URL support.
@@ -403,6 +399,8 @@ object FirebaseRealtimeSyncManager {
 
         var isDisposed = false
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        var lastProcessedTimestamp = 0L
+        var lastProcessedCmdId = ""
 
         fun notifyUpdate(
             rem: Int,
@@ -460,6 +458,13 @@ object FirebaseRealtimeSyncManager {
                         else -> remoteLock || isLockedVal
                     }
 
+                    if (cmdTimestamp > 0) {
+                        lastProcessedTimestamp = cmdTimestamp
+                    }
+                    if (cmdId.isNotBlank() && cmdId != "NONE") {
+                        lastProcessedCmdId = cmdId
+                    }
+
                     val remoteAllowance = (snapshot.child("totalAllowance").getValue(Long::class.java)
                         ?: snapshot.child("remoteAllowance").getValue(Long::class.java) ?: 21600L).toInt()
                     val rawRem = (snapshot.child("remainingSeconds").getValue(Long::class.java) ?: 21600L).toInt()
@@ -494,12 +499,20 @@ object FirebaseRealtimeSyncManager {
             ?.addSnapshotListener { snapshot, error ->
                 if (error != null || isDisposed || snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
+                val cmdTimestamp = snapshot.getLong("commandTimestamp") ?: 0L
+                val cmdId = snapshot.getString("commandId") ?: "NONE"
+
+                // Fast skip if RTDB already processed a newer or identical command to prevent laggy duplicate UI refreshes
+                if (cmdTimestamp > 0 && cmdTimestamp < lastProcessedTimestamp) return@addSnapshotListener
+                if (cmdId.isNotBlank() && cmdId != "NONE" && cmdId == lastProcessedCmdId && cmdTimestamp <= lastProcessedTimestamp) return@addSnapshotListener
+
+                if (cmdTimestamp > 0) lastProcessedTimestamp = cmdTimestamp
+                if (cmdId.isNotBlank() && cmdId != "NONE") lastProcessedCmdId = cmdId
+
                 val remoteLock = snapshot.getBoolean("remoteLock")
                     ?: snapshot.getBoolean("isLocked")
                     ?: false
                 val isLockedVal = snapshot.getBoolean("isLocked") ?: false
-                val cmdId = snapshot.getString("commandId") ?: "NONE"
-                val cmdTimestamp = snapshot.getLong("commandTimestamp") ?: 0L
                 val commandType = snapshot.getString("commandType") ?: "NONE"
                 val targetChildId = snapshot.getString("targetChildId") ?: cleanCode
 

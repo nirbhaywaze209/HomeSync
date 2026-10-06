@@ -179,16 +179,20 @@ class MainActivity : ComponentActivity() {
             }
 
             val devChildId = if (currentChildId.isNotBlank()) currentChildId else ChildIdManager.getDeviceChildId(context)
-            val isChild = (userAge in 1..15) || currentScreen == "CHILD" || currentScreen == "LOCKED" || FamilyManager.getStoredUserRole(context) == FamilyRole.CHILD
+            val isChildRole = currentScreen != "GUARDIAN" && (
+                currentScreen == "CHILD" || currentScreen == "LOCKED" ||
+                (userAge in 1..15) || FamilyManager.getStoredUserRole(context) == FamilyRole.CHILD
+            )
 
             // Enforce authoritative lock state continuously on Child device
-            LaunchedEffect(isChild, devChildId) {
-                if (isChild && devChildId.isNotBlank()) {
-                    while (true) {
-                        kotlinx.coroutines.delay(1000L)
+            LaunchedEffect(isChildRole, devChildId, currentScreen) {
+                if (isChildRole && currentScreen == "CHILD" && devChildId.isNotBlank()) {
+                    while (currentScreen == "CHILD") {
+                        kotlinx.coroutines.delay(2000L)
                         val currentlyLocked = ScreenTimeManager.isRemoteLocked(context, devChildId) || ScreenTimeManager.isDeviceLocked(context, devChildId)
                         if (currentlyLocked && currentScreen != "LOCKED") {
                             currentScreen = "LOCKED"
+                            break
                         }
                     }
                 }
