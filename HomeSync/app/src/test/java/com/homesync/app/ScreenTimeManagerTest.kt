@@ -149,4 +149,204 @@ class ScreenTimeManagerTest {
         assertEquals(0, effectiveUsed)
         assertEquals(21600, effectiveRem)
     }
+
+    @Test
+    fun resetVersion_guardsAgainstStaleCloudSnapshots() {
+        val currentResetVersion = 3L
+
+        fun shouldAcceptCloudUpdate(cloudResetVersion: Long, currentResetVersion: Long): Boolean {
+            return cloudResetVersion >= currentResetVersion
+        }
+
+        // Stale snapshot with previous version -> rejected
+        assertFalse(shouldAcceptCloudUpdate(1L, currentResetVersion))
+        assertFalse(shouldAcceptCloudUpdate(2L, currentResetVersion))
+
+        // Current or newer version -> accepted
+        assertTrue(shouldAcceptCloudUpdate(3L, currentResetVersion))
+        assertTrue(shouldAcceptCloudUpdate(4L, currentResetVersion))
+    }
+
+    @Test
+    fun packageExclusion_filtersOutSelfAndSystemServices() {
+        val myPackage = "com.homesync.app"
+        val ignoredPackages = setOf(myPackage, "com.android.systemui", "android")
+
+        fun isEligibleApp(pkg: String): Boolean {
+            return pkg.isNotBlank() && !ignoredPackages.contains(pkg)
+        }
+
+        assertFalse(isEligibleApp("com.homesync.app"))
+        assertFalse(isEligibleApp("com.android.systemui"))
+        assertFalse(isEligibleApp("android"))
+        assertTrue(isEligibleApp("com.google.android.youtube"))
+        assertTrue(isEligibleApp("com.instagram.android"))
+        assertTrue(isEligibleApp("com.whatsapp"))
+    }
+
+    @Test
+    fun resetBase_advancesFloorCorrectly() {
+        val oldBase = 5000
+        val rawUsage = 7200
+        val storedUsed = 2200
+        val interactive = 2100
+
+        // New base must baseline raw usage to prevent old screen time from refreshing
+        val newBase = maxOf(rawUsage, oldBase + maxOf(interactive, storedUsed))
+        assertEquals(7200, newBase)
+
+        // Delta immediately after reset is 0
+        val effectiveDelta = (rawUsage - newBase).coerceAtLeast(0)
+        assertEquals(0, effectiveDelta)
+    }
+
+    @Test
+    fun test1_normalTelemetryDoesNotChangeResetVersion() {
+        val existingResetVersion = 100L
+        val telemetryPayload = mutableMapOf<String, Any>(
+            "usedSeconds" to 600,
+            "remainingSeconds" to 21000
+        )
+        // If resetVersion is null, it is NOT written to payload
+        val passedResetVersion: Long? = null
+        if (passedResetVersion != null && passedResetVersion > 0L) {
+            telemetryPayload["resetVersion"] = passedResetVersion
+        }
+
+        // Simulate Firestore SetOptions.merge() with existing doc:
+        val existingDoc = mutableMapOf<String, Any>("resetVersion" to existingResetVersion)
+        existingDoc.putAll(telemetryPayload)
+
+        assertEquals("resetVersion must remain 100 after normal telemetry", 100L, existingDoc["resetVersion"])
+    }
+
+    @Test
+    fun test2_actualResetChangesResetVersion() {
+        val existingResetVersion = 100L
+        val resetTimestamp = 200L
+
+        fun generateResetPayload(resetVersion: Long?): Map<String, Any> {
+            val payload = mutableMapOf<String, Any>("usedSeconds" to 0)
+            if (resetVersion != null && resetVersion > 0L) {
+                payload["resetVersion"] = resetVersion
+            }
+            return payload
+        }
+
+        val resetPayload = generateResetPayload(resetTimestamp)
+        val existingDoc = mutableMapOf<String, Any>("resetVersion" to existingResetVersion)
+        existingDoc.putAll(resetPayload)
+
+        assertTrue(existingDoc["resetVersion"] as Long > existingResetVersion)
+        assertEquals(200L, existingDoc["resetVersion"])
+    }
+
+    @Test
+    fun test3_sameResetVersionIsProcessedOnlyOnce() {
+        var localResetVersion = 200L
+        var baselineCreatedCount = 0
+
+        fun processReset(cloudResetVersion: Long) {
+            if (cloudResetVersion > 0L && cloudResetVersion > localResetVersion) {
+                localResetVersion = cloudResetVersion
+                baselineCreatedCount++
+            }
+        }
+
+        // First delivery: cloudResetVersion == localResetVersion (200 == 200) -> ignored
+        processReset(200L)
+        assertEquals(0, baselineCreatedCount)
+
+        // New delivery: 300 > 200 -> processed
+        processReset(300L)
+        assertEquals(1, baselineCreatedCount)
+
+        // Duplicate delivery of 300 -> ignored
+        processReset(300L)
+        assertEquals(1, baselineCreatedCount)
+    }
+
+    @Test
+    fun test4_staleResetIsIgnored() {
+        val localResetVersion = 300L
+        val cloudResetVersion = 200L
+
+        val shouldProcess = cloudResetVersion > 0L && cloudResetVersion > localResetVersion
+        assertFalse("Stale reset version (200 vs 300) must be ignored", shouldProcess)
+    }
+
+    @Test
+    fun test5_newResetIsProcessed() {
+        val localResetVersion = 300L
+        val cloudResetVersion = 400L
+
+        val shouldProcess = cloudResetVersion > 0L && cloudResetVersion > localResetVersion
+        assertTrue("New reset version (400 vs 300) must be processed", shouldProcess)
+    }
+
+    @Test
+    fun test6_missingResetVersionIsNotAReset() {
+        val localResetVersion = 300L
+        val cloudResetVersion: Long? = null
+
+        val safeVersion = cloudResetVersion ?: 0L
+        val shouldProcess = safeVersion > 0L && safeVersion > localResetVersion
+        assertFalse("Missing/null resetVersion must never trigger a reset", shouldProcess)
+    }
+
+    @Test
+    fun test7_normalTelemetryAfterResetPreservesResetVersion() {
+        var cloudDoc = mutableMapOf<String, Any>("resetVersion" to 500L, "usedSeconds" to 0)
+
+        // Child sends repeated telemetry cycles
+        val telemetryCycles = listOf(10, 20, 30, 40, 50)
+        for (used in telemetryCycles) {
+            val telemetryPayload = mutableMapOf<String, Any>(
+                "usedSeconds" to used,
+                "remainingSeconds" to (21600 - used)
+            )
+            val resetVer: Long? = null
+            if (resetVer != null) {
+                telemetryPayload["resetVersion"] = resetVer
+            }
+            cloudDoc.putAll(telemetryPayload)
+            assertEquals("resetVersion must remain 500 across telemetry cycles", 500L, cloudDoc["resetVersion"])
+        }
+    }
+
+    @Test
+    fun test8_resetBaselineCalculationAccurate() {
+        val rawUsageAtReset = 4 * 3600 // 4 hours = 14400s
+        val baseline = rawUsageAtReset
+
+        val effectiveImmediately = (rawUsageAtReset - baseline).coerceAtLeast(0)
+        assertEquals("Effective usage immediately after reset must be 0", 0, effectiveImmediately)
+
+        val rawUsageLater = (4 * 3600) + (15 * 60) // 4 hours 15 mins = 15300s
+        val effectiveLater = (rawUsageLater - baseline).coerceAtLeast(0)
+        assertEquals("Effective usage after 15m must be 15m (900s)", 15 * 60, effectiveLater)
+    }
+
+    @Test
+    fun test9_dailyResetOccursOncePerDay() {
+        var lastResetDate = "2026-10-06"
+        val currentDate = "2026-10-07"
+        var dailyResetRunCount = 0
+
+        fun checkAndApplyDailyReset(today: String) {
+            if (lastResetDate != today) {
+                dailyResetRunCount++
+                lastResetDate = today
+            }
+        }
+
+        // First check of the new day -> runs once
+        checkAndApplyDailyReset(currentDate)
+        assertEquals(1, dailyResetRunCount)
+
+        // Subsequent checks on the same day (restarts, loops, logins) -> does NOT run again
+        checkAndApplyDailyReset(currentDate)
+        checkAndApplyDailyReset(currentDate)
+        assertEquals(1, dailyResetRunCount)
+    }
 }

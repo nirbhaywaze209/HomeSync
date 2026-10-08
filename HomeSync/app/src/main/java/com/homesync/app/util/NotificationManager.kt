@@ -152,6 +152,14 @@ object NotificationManager {
         } else if (effectiveRole.equals("GUARDIAN", ignoreCase = true)) {
             val myFamilyId = try { FamilyManager.getStoredFamilyId(context).trim().uppercase() } catch (_: Exception) { "" }
             val notifFamilyId = notification.familyId.trim().uppercase()
+            if (notification.type == NotificationType.SOS_EMERGENCY) {
+                // Emergency SOS: Always deliver if family matches, or either familyId is blank, or matching paired child
+                val pairedChild = try { ChildIdManager.getDeviceChildId(context).trim().uppercase() } catch (_: Exception) { "" }
+                val notifChild = notification.childCode.trim().uppercase()
+                if (myFamilyId.isBlank() || notifFamilyId.isBlank() || myFamilyId == notifFamilyId || (pairedChild.isNotBlank() && pairedChild == notifChild)) {
+                    return true
+                }
+            }
             if (myFamilyId.isNotBlank() && notifFamilyId.isNotBlank() && myFamilyId != notifFamilyId) {
                 return false
             }

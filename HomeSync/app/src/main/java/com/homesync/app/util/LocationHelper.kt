@@ -151,9 +151,9 @@ object LocationHelper {
         // Trigger immediate quick fix while continuous listener warms up
         fetchCurrentDeviceLocation(context, onSuccess = onUpdate, onFailure = {})
 
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000L)
-            .setMinUpdateIntervalMillis(1500L)
-            .setMinUpdateDistanceMeters(0f) // Trigger even on minor stationary changes
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 15000L)
+            .setMinUpdateIntervalMillis(10000L)
+            .setMinUpdateDistanceMeters(10f)
             .build()
 
         val callback = object : LocationCallback() {

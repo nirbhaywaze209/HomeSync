@@ -1315,10 +1315,16 @@ object FamilyManager {
                     val joinedAt = doc.getLong("joinedAt") ?: System.currentTimeMillis()
                     val lastActive = doc.getLong("lastActiveTime") ?: System.currentTimeMillis()
                     val isOnline = doc.getBoolean("isOnline") ?: true
-                    val childCode = (doc.getString("childCode") ?: doc.getString("pairingCode") ?: "").trim().uppercase()
+                    val rawChildCode = (doc.getString("childCode") ?: doc.getString("pairingCode") ?: "").trim().uppercase()
+                    val childCode = if (role == FamilyRole.CHILD) {
+                        rawChildCode.ifBlank { ChildIdManager.resolveChildCode(context, uid, name) }
+                    } else rawChildCode
                     val phone = doc.getString("phoneNumber") ?: ""
 
                     if (status == MemberStatus.APPROVED) {
+                        if (role == FamilyRole.CHILD && childCode.isNotBlank() && childCode.startsWith("HS-", ignoreCase = true)) {
+                            ChildIdManager.addSiblingProfile(context, name, childCode)
+                        }
                         list.add(
                             FamilyMember(
                                 userId = uid,

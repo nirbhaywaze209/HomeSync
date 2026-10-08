@@ -27,6 +27,7 @@ object ProfileImageManager {
         }
     }
 
+    private val negativeCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val latestCloudUrls = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     fun setLatestCloudUrl(userId: String, url: String) {
@@ -190,6 +191,8 @@ object ProfileImageManager {
         }
 
         val cachedPhoto = CachedPhoto(cleanUid, effectiveUrl, normalized)
+        negativeCache.remove(canonicalKey)
+        negativeCache.remove(cleanKey)
         memCache.put(canonicalKey, cachedPhoto)
         if (cleanKey != canonicalKey) {
             memCache.put(cleanKey, cachedPhoto)
@@ -248,6 +251,10 @@ object ProfileImageManager {
         val targetExpectedUrl = (expectedUrl ?: getLatestCloudUrl(cleanUid)).trim()
 
         // 1. Check Memory Cache
+        if (negativeCache.containsKey(canonicalKey) || negativeCache.containsKey(cleanKey)) {
+            return null
+        }
+
         val cached = memCache.get(canonicalKey) ?: memCache.get(cleanKey)
         if (cached != null) {
             if (targetExpectedUrl.isNotBlank()) {
@@ -285,6 +292,7 @@ object ProfileImageManager {
             } catch (_: Exception) {}
         }
 
+        negativeCache[canonicalKey] = System.currentTimeMillis()
         return null
     }
 
@@ -300,6 +308,8 @@ object ProfileImageManager {
         val canonicalKey = "user_$cleanUid"
         val safeKey = canonicalKey.replace(Regex("[^a-zA-Z0-9_]"), "_")
 
+        negativeCache.remove(canonicalKey)
+        negativeCache.remove(cleanKey)
         memCache.remove(canonicalKey)
         memCache.remove(cleanKey)
         if (cleanUid.isNotBlank()) {

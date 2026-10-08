@@ -2,6 +2,7 @@ package com.homesync.app.ui.screens
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
@@ -223,6 +224,9 @@ fun GuardianHomeScreen(
                 val name = m.name.ifBlank { "Child" }
                 val uid = m.userId
                 val code = m.childCode.ifBlank { ChildIdManager.resolveChildCode(context, uid, name, familyMembers) }
+                if (code.isNotBlank() && code.startsWith("HS-", ignoreCase = true)) {
+                    ChildIdManager.addSiblingProfile(context, name, code)
+                }
                 list.add(GuardianChildItem(name, uid, code))
             }
             for (saved in savedChildrenList) {
@@ -545,6 +549,9 @@ fun GuardianHomeScreen(
     }
 
     var liveCheckInAlertNotification by remember { mutableStateOf<SystemNotification?>(null) }
+    var activeEmergencySosAlert by remember {
+        mutableStateOf<SystemNotification?>(com.homesync.app.service.HomeSyncForegroundService.activeEmergencyAlert)
+    }
 
     // Request Notification permission on Android 13+ for pop-up heads-up alerts
     val notifPermissionLauncher = rememberLauncherForActivityResult(
@@ -553,6 +560,39 @@ fun GuardianHomeScreen(
 
     LaunchedEffect(Unit) {
         NotificationManager.activeDeviceRole = "GUARDIAN"
+        // Ensure continuous background monitor is running so SOS alerts reach guardian even when app is closed
+        com.homesync.app.service.HomeSyncForegroundService.startForGuardian(context)
+
+        // Check if opened directly via SOS heads-up notification or pending alert
+        val pendingAlert = com.homesync.app.service.HomeSyncForegroundService.activeEmergencyAlert
+        if (pendingAlert != null) {
+            activeEmergencySosAlert = pendingAlert
+        } else {
+            val act = context as? Activity
+            val intent = act?.intent
+            if (intent?.getStringExtra("NAVIGATE_TO") == "EMERGENCY_SOS") {
+                val childName = intent.getStringExtra("SOS_CHILD_NAME") ?: "Child"
+                val childCode = intent.getStringExtra("SOS_CHILD_CODE") ?: ""
+                val famId = intent.getStringExtra("SOS_FAMILY_ID") ?: activeFamilyId
+                val eventId = intent.getStringExtra("SOS_EVENT_ID") ?: java.util.UUID.randomUUID().toString()
+                val lat = intent.getDoubleExtra("SOS_LATITUDE", 0.0)
+                val lng = intent.getDoubleExtra("SOS_LONGITUDE", 0.0)
+                val msg = intent.getStringExtra("SOS_MESSAGE") ?: "Child triggered an Emergency SOS alert!"
+                activeEmergencySosAlert = SystemNotification(
+                    id = eventId,
+                    title = "🚨 EMERGENCY SOS: $childName Needs Help!",
+                    message = msg,
+                    type = NotificationType.SOS_EMERGENCY,
+                    childName = childName,
+                    childCode = childCode,
+                    familyId = famId,
+                    latitude = lat,
+                    longitude = lng,
+                    targetRole = "GUARDIAN"
+                )
+            }
+        }
+
         com.homesync.app.util.IdentityDiagnosticHelper.printIdentityDiagnostic(
             context = context,
             screenRole = "GUARDIAN",
@@ -590,18 +630,54 @@ fun GuardianHomeScreen(
         }
     }
 
-    // Live continuous Firestore Real-time Listener for notifications (cleaned up on dispose)
+    // Live continuous RTDB + Firestore Real-time Listener for notifications (cleaned up on dispose)
     DisposableEffect(Unit) {
+        val processedAlertIds = java.util.Collections.synchronizedSet(java.util.LinkedHashSet<String>())
         val listenerRegistration = FirebaseSyncManager.listenNotificationsFromCloud(context) { incomingNotif ->
             NotificationManager.addNotificationFromCloud(context, incomingNotif)
             val freshList = NotificationManager.getNotifications(context)
             notificationsList = freshList
-            if (!incomingNotif.isRead && !NotificationManager.isAlertDismissed(context, incomingNotif.id) && !dismissedAlertIds.contains(incomingNotif.id) && incomingNotif.targetRole.equals("GUARDIAN", ignoreCase = true)) {
-                liveCheckInAlertNotification = incomingNotif
+
+            if (!incomingNotif.isRead && !NotificationManager.isAlertDismissed(context, incomingNotif.id) &&
+                !dismissedAlertIds.contains(incomingNotif.id) && incomingNotif.targetRole.equals("GUARDIAN", ignoreCase = true)
+            ) {
+                if (processedAlertIds.add(incomingNotif.id)) {
+                    val recvTs = System.currentTimeMillis()
+                    if (incomingNotif.type == NotificationType.SOS_EMERGENCY) {
+                        android.util.Log.i("HomeSyncLatency", "SOS_RTDB_RECEIVED eventId=${incomingNotif.id} childCode=${incomingNotif.childCode} childUid=${incomingNotif.childUid} timestamp=$recvTs latencyMs=${if (incomingNotif.timestamp > 0) recvTs - incomingNotif.timestamp else -1}")
+                        activeEmergencySosAlert = incomingNotif
+                        android.util.Log.i("HomeSyncLatency", "SOS_GUARDIAN_DISPLAYED eventId=${incomingNotif.id} childCode=${incomingNotif.childCode} childUid=${incomingNotif.childUid} timestamp=${System.currentTimeMillis()}")
+                    } else if (incomingNotif.type == NotificationType.CHILD_SAFE_CHECKIN) {
+                        android.util.Log.i("HomeSyncLatency", "SAFE_GUARDIAN_RECEIVED eventId=${incomingNotif.id} childCode=${incomingNotif.childCode} childUid=${incomingNotif.childUid} timestamp=$recvTs latencyMs=${if (incomingNotif.timestamp > 0) recvTs - incomingNotif.timestamp else -1}")
+                        liveCheckInAlertNotification = incomingNotif
+                        android.util.Log.i("HomeSyncLatency", "SAFE_GUARDIAN_DISPLAYED eventId=${incomingNotif.id} childCode=${incomingNotif.childCode} childUid=${incomingNotif.childUid} timestamp=${System.currentTimeMillis()}")
+                    } else {
+                        liveCheckInAlertNotification = incomingNotif
+                    }
+                }
             }
         }
         onDispose {
             listenerRegistration?.remove()
+        }
+    }
+
+    // Direct Zero-Latency Fast Path Listener for Emergency SOS (hs_sos/{familyId})
+    DisposableEffect(activeFamilyId) {
+        var cancelFastSos: (() -> Unit)? = null
+        if (activeFamilyId.isNotBlank()) {
+            cancelFastSos = FirebaseRealtimeSyncManager.listenEmergencySos(activeFamilyId) { sosNotif ->
+                if (!dismissedAlertIds.contains(sosNotif.id) && !NotificationManager.isAlertDismissed(context, sosNotif.id)) {
+                    val recvTs = System.currentTimeMillis()
+                    android.util.Log.i("HomeSyncLatency", "SOS_FAST_PATH_RECEIVED eventId=${sosNotif.id} childCode=${sosNotif.childCode} timestamp=$recvTs latencyMs=${if (sosNotif.timestamp > 0) recvTs - sosNotif.timestamp else -1}")
+                    NotificationManager.addNotification(context, sosNotif)
+                    notificationsList = NotificationManager.getNotifications(context)
+                    activeEmergencySosAlert = sosNotif
+                }
+            }
+        }
+        onDispose {
+            cancelFastSos?.invoke()
         }
     }
 
@@ -630,9 +706,17 @@ fun GuardianHomeScreen(
         }
     }
 
+    val targetScreenTimeCodesKey = remember(activeChildCode, effectiveChildren) {
+        (effectiveChildren.map { it.childCode.trim().uppercase() } + listOf(activeChildCode.trim().uppercase()))
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+            .joinToString(",")
+    }
+
     // Live listener for all children's live screen time and active child's telemetry
     // Starts for all effective children and cleanly unregisters previous listeners on dispose
-    DisposableEffect(activeChildCode, activeFamilyId, effectiveChildren) {
+    DisposableEffect(activeFamilyId, targetScreenTimeCodesKey) {
         val screenTimeDisposables = mutableListOf<() -> Unit>()
         var questsReg: com.google.firebase.firestore.ListenerRegistration? = null
 
@@ -645,19 +729,20 @@ fun GuardianHomeScreen(
 
         for (cCode in targetCodes) {
             val cancel = FirebaseRealtimeSyncManager.listenScreenTime(cCode) { rem, locked, tot, used ->
+                val consistentRem = if (locked) 0 else if (tot > 0 && used >= 0) (tot - used).coerceAtLeast(0) else rem
                 screenTimeByChild = screenTimeByChild + (cCode to ChildScreenTimeState(
-                    remainingSeconds = rem,
+                    remainingSeconds = consistentRem,
                     isLocked = locked,
                     totalAllowanceSeconds = tot,
                     usedSeconds = used
                 ))
                 if (cCode == activeChildCode.trim().uppercase()) {
-                    remainingSeconds = rem
+                    remainingSeconds = consistentRem
                     isLocked = locked
                     usedSeconds = used
                     totalAllowanceSeconds = tot
                 }
-                ScreenTimeManager.applyRemoteUpdate(context, cCode, rem, locked, tot, used)
+                ScreenTimeManager.applyRemoteUpdate(context, cCode, consistentRem, locked, tot, used)
             }
             cancel?.let { screenTimeDisposables.add(it) }
         }
@@ -676,8 +761,17 @@ fun GuardianHomeScreen(
         }
     }
 
+    val targetChildrenIdsKey = remember(effectiveChildren, familyMembers) {
+        (familyMembers.filter { it.role == FamilyRole.CHILD && it.status == MemberStatus.APPROVED }.map { it.userId.trim() } +
+                effectiveChildren.map { it.childUid.trim() })
+            .filter { it.isNotBlank() && !it.startsWith("HS-", ignoreCase = true) }
+            .distinct()
+            .sorted()
+            .joinToString(",")
+    }
+
     // Real-time snapshot listeners for all approved children tasks under active family
-    DisposableEffect(activeFamilyId, effectiveChildren, familyMembers) {
+    DisposableEffect(activeFamilyId, targetChildrenIdsKey) {
         val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
         if (activeFamilyId.isNotBlank()) {
             val targetChildren = mutableListOf<Pair<String, String>>()
@@ -711,6 +805,7 @@ fun GuardianHomeScreen(
                         android.util.Log.i("GuardianHomeScreen", "TASK_GUARDIAN_UI_UPDATED childUserId=$cUid childCode=$cCode count=${childTasks.size}")
                         for (task in childTasks) {
                             if (task.status == QuestStatus.SUBMITTED && task.photoProofUri.isNotBlank()) {
+                                android.util.Log.i("HomeSyncLatency", "TASK_PROOF_GUARDIAN_RECEIVED taskId=${task.id} childUid=$cUid timestamp=${System.currentTimeMillis()}")
                                 android.util.Log.i("GuardianHomeScreen", "TASK_GUARDIAN_PROOF_RECEIVED taskId=${task.id} childUserId=$cUid photoProofUri=${task.photoProofUri}")
                                 TaskProofImageManager.loadProofBitmap(context, task.photoProofUri, task.id) { _ ->
                                     android.util.Log.d("GuardianHomeScreen", "TASK_PROOF_PREFETCH_SUCCESS taskId=${task.id}")
@@ -1039,8 +1134,19 @@ fun GuardianHomeScreen(
                                                     } else {
                                                         ChildQuestManager.getQuests(context, childCode)
                                                     }
-                                                    remainingSeconds = ScreenTimeManager.getRemainingSeconds(context, childCode)
-                                                    isLocked = ScreenTimeManager.isDeviceLocked(context, childCode)
+                                                    val cState = screenTimeByChild[childCode]
+                                                    if (cState != null) {
+                                                        remainingSeconds = cState.remainingSeconds
+                                                        isLocked = cState.isLocked
+                                                        usedSeconds = cState.usedSeconds
+                                                        totalAllowanceSeconds = cState.totalAllowanceSeconds
+                                                    } else {
+                                                        remainingSeconds = ScreenTimeManager.getRemainingSeconds(context, childCode)
+                                                        isLocked = ScreenTimeManager.isDeviceLocked(context, childCode)
+                                                        usedSeconds = ScreenTimeManager.getUsedSeconds(context, childCode)
+                                                        totalAllowanceSeconds = ScreenTimeManager.getTotalAllowance(context, childCode)
+                                                    }
+                                                    activeChildCode = childCode
                                                     selectedChildForDetail = cleanName
                                                 }
                                             ) {
@@ -1162,7 +1268,7 @@ fun GuardianHomeScreen(
                                 GlanceCard(
                                     title = "Screen Time",
                                     value = if (isLocked) "Locked" else "${ScreenTimeManager.formatHoursAndMinutes(remainingSeconds)} Left",
-                                    subtitle = if (isLocked) "Device is locked by Guardian" else "Used: ${ScreenTimeManager.formatHoursAndMinutes(usedSeconds)} (Limit: ${totalAllowanceSeconds / 3600}h)",
+                                    subtitle = if (isLocked) "Device is locked by Guardian" else "Used: ${ScreenTimeManager.formatHoursAndMinutes(usedSeconds)} (Limit: ${ScreenTimeManager.formatHoursAndMinutes(totalAllowanceSeconds)})",
                                     icon = Icons.Filled.Schedule,
                                     iconTint = if (isLocked) RestrictionRed else InfoCyan,
                                     iconBg = if (isLocked) RestrictionRedBg else Color(0xFFE0F2FE),
@@ -1259,6 +1365,7 @@ fun GuardianHomeScreen(
                                                 mutableStateOf(com.homesync.app.util.TaskProofImageManager.getProofBitmap(context, quest.photoProofUri, quest.id))
                                             }
                                             LaunchedEffect(quest.photoProofUri, quest.id) {
+                                                android.util.Log.i("HomeSyncLatency", "TASK_PROOF_GUARDIAN_DISPLAYED taskId=${quest.id} childUid=${quest.childUserId.ifBlank { selectedChildUid }} timestamp=${System.currentTimeMillis()}")
                                                 com.homesync.app.util.TaskProofImageManager.loadProofBitmap(context, quest.photoProofUri, quest.id) { loaded ->
                                                     proofBitmap = loaded
                                                 }
@@ -1463,7 +1570,10 @@ fun GuardianHomeScreen(
                                                 Button(
                                                     onClick = {
                                                         val allCodes = targetChildrenList.map { it.childCode }
-                                                        android.util.Log.i("HomeSyncLatency", "LOCK_BUTTON_CLICK childCode=ALL locked=true timestamp=${System.currentTimeMillis()}")
+                                                        val clickTs = System.currentTimeMillis()
+                                                        for (c in allCodes) {
+                                                            android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=LOCK_${c}_$clickTs commandType=LOCK_DEVICE childCode=$c path=hs_screentime/$c timestamp=$clickTs")
+                                                        }
                                                         ScreenTimeManager.setAllChildrenLocked(context, allCodes, true)
                                                         screenTimeByChild = screenTimeByChild.mapValues { it.value.copy(isLocked = true, remainingSeconds = 0) }
                                                         isLocked = true
@@ -1481,6 +1591,10 @@ fun GuardianHomeScreen(
                                                 Button(
                                                     onClick = {
                                                         val allCodes = targetChildrenList.map { it.childCode }
+                                                        val clickTs = System.currentTimeMillis()
+                                                        for (c in allCodes) {
+                                                            android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=UNLOCK_${c}_$clickTs commandType=UNLOCK_DEVICE childCode=$c path=hs_screentime/$c timestamp=$clickTs")
+                                                        }
                                                         ScreenTimeManager.setAllChildrenLocked(context, allCodes, false)
                                                         screenTimeByChild = screenTimeByChild.mapValues {
                                                             val rem = if (it.value.remainingSeconds > 0) it.value.remainingSeconds else 1800
@@ -1501,6 +1615,10 @@ fun GuardianHomeScreen(
                                                 Button(
                                                     onClick = {
                                                         val allCodes = targetChildrenList.map { it.childCode }
+                                                        val clickTs = System.currentTimeMillis()
+                                                        for (c in allCodes) {
+                                                            android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=RESET_${c}_$clickTs commandType=REMOTE_RESET childCode=$c path=hs_screentime/$c timestamp=$clickTs")
+                                                        }
                                                         ScreenTimeManager.resetAllChildrenScreenTime(context, allCodes)
                                                         screenTimeByChild = screenTimeByChild.mapValues {
                                                             it.value.copy(
@@ -1582,7 +1700,7 @@ fun GuardianHomeScreen(
                                                     color = if (childLocked) RestrictionRedBg else SafeGreenBg
                                                 ) {
                                                     Text(
-                                                        text = if (childLocked) "🔒 Locked" else "🟢 Active (${childRem / 60}m left)",
+                                                        text = if (childLocked) "🔒 Locked" else "🟢 Active (${ScreenTimeManager.formatHoursAndMinutes(childRem)} left)",
                                                         color = if (childLocked) RestrictionRed else SafeGreen,
                                                         fontSize = 11.sp,
                                                         fontWeight = FontWeight.Bold,
@@ -1600,7 +1718,7 @@ fun GuardianHomeScreen(
                                                     fontWeight = FontWeight.Medium
                                                 )
                                                 Text(
-                                                    text = "Daily Limit: ${childLimit / 3600}h",
+                                                    text = "Daily Limit: ${ScreenTimeManager.formatHoursAndMinutes(childLimit)}",
                                                     fontSize = 11.sp,
                                                     color = TextSecondary,
                                                     fontWeight = FontWeight.Medium
@@ -1615,8 +1733,11 @@ fun GuardianHomeScreen(
                                                 Button(
                                                     onClick = {
                                                         val newLock = !childLocked
-                                                        android.util.Log.i("HomeSyncLatency", "LOCK_BUTTON_CLICK childCode=$childCode locked=$newLock timestamp=${System.currentTimeMillis()}")
-                                                        ScreenTimeManager.setDeviceLocked(context, childCode, newLock)
+                                                        val clickTs = System.currentTimeMillis()
+                                                        val cmdType = if (newLock) "LOCK_DEVICE" else "UNLOCK_DEVICE"
+                                                        val cmdId = "${cmdType}_${childCode}_$clickTs"
+                                                        android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=$cmdType childCode=$childCode path=hs_screentime/$childCode timestamp=$clickTs")
+                                                        ScreenTimeManager.setDeviceLocked(context, childCode, newLock, cmdId)
                                                         val newRem = if (!newLock) {
                                                              val updated = ScreenTimeManager.getRemainingSeconds(context, childCode)
                                                              if (updated > 0) updated else 1800
@@ -1649,14 +1770,10 @@ fun GuardianHomeScreen(
 
                                                 Button(
                                                     onClick = {
-                                                        if (childState.totalAllowanceSeconds > 0) {
-                                                            ScreenTimeManager.applyRemoteUpdate(
-                                                                context, childCode,
-                                                                childState.remainingSeconds, childState.isLocked,
-                                                                childState.totalAllowanceSeconds, childState.usedSeconds
-                                                            )
-                                                        }
-                                                        ScreenTimeManager.grantExtraTime(context, childCode, 900)
+                                                        val clickTs = System.currentTimeMillis()
+                                                        val cmdId = "GRANT_EXTRA_TIME_${childCode}_$clickTs"
+                                                        android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=GRANT_EXTRA_TIME childCode=$childCode path=hs_screentime/$childCode timestamp=$clickTs")
+                                                        ScreenTimeManager.grantExtraTime(context, childCode, 900, cmdId)
                                                         val updatedRem = ScreenTimeManager.getRemainingSeconds(context, childCode)
                                                         val updatedTot = ScreenTimeManager.getTotalAllowance(context, childCode)
                                                         val updatedState = childState.copy(isLocked = false, remainingSeconds = updatedRem, totalAllowanceSeconds = updatedTot)
@@ -1678,14 +1795,10 @@ fun GuardianHomeScreen(
 
                                                 Button(
                                                     onClick = {
-                                                        if (childState.totalAllowanceSeconds > 0) {
-                                                            ScreenTimeManager.applyRemoteUpdate(
-                                                                context, childCode,
-                                                                childState.remainingSeconds, childState.isLocked,
-                                                                childState.totalAllowanceSeconds, childState.usedSeconds
-                                                            )
-                                                        }
-                                                        ScreenTimeManager.grantExtraTime(context, childCode, 1800)
+                                                        val clickTs = System.currentTimeMillis()
+                                                        val cmdId = "GRANT_EXTRA_TIME_${childCode}_$clickTs"
+                                                        android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=GRANT_EXTRA_TIME childCode=$childCode path=hs_screentime/$childCode timestamp=$clickTs")
+                                                        ScreenTimeManager.grantExtraTime(context, childCode, 1800, cmdId)
                                                         val updatedRem = ScreenTimeManager.getRemainingSeconds(context, childCode)
                                                         val updatedTot = ScreenTimeManager.getTotalAllowance(context, childCode)
                                                         val updatedState = childState.copy(isLocked = false, remainingSeconds = updatedRem, totalAllowanceSeconds = updatedTot)
@@ -1709,7 +1822,10 @@ fun GuardianHomeScreen(
                                             // Individual Action Row 2: Per-Child Reset to 6 Hours
                                             Button(
                                                 onClick = {
-                                                    ScreenTimeManager.resetToSixHoursAsCommand(context, childCode)
+                                                    val clickTs = System.currentTimeMillis()
+                                                    val cmdId = "REMOTE_RESET_${childCode}_$clickTs"
+                                                    android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=REMOTE_RESET childCode=$childCode path=hs_screentime/$childCode timestamp=$clickTs")
+                                                    ScreenTimeManager.resetToSixHoursAsCommand(context, childCode, cmdId)
                                                     val resetAllowance = ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
                                                     val updatedState = childState.copy(
                                                         isLocked = false,
@@ -1932,7 +2048,202 @@ fun GuardianHomeScreen(
         )
     }
 
-    // Real-Time Popup Alert Modal for Incoming Child Check-Ins & SOS Alerts
+    // =========================================================================
+    // DEDICATED HIGH-PRIORITY EMERGENCY SOS ALERT MODAL (SIREN & LIVE LOCATION)
+    // =========================================================================
+    activeEmergencySosAlert?.let { sosAlert ->
+        AlertDialog(
+            onDismissRequest = {
+                // Keep siren running unless explicitly silenced via acknowledge button
+                com.homesync.app.service.HomeSyncForegroundService.stopAlarm(context)
+                dismissedAlertIds.add(sosAlert.id)
+                activeEmergencySosAlert = null
+                coroutineScope.launch(Dispatchers.IO) {
+                    NotificationManager.markAsRead(context, sosAlert.id)
+                }
+            },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(RestrictionRed, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🚨", fontSize = 24.sp)
+                    }
+                    Column {
+                        Text(
+                            text = "EMERGENCY SOS ALERT",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            color = RestrictionRed,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "IMMEDIATE ATTENTION REQUIRED",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = RestrictionRed.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+            },
+            text = {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = RestrictionRed.copy(alpha = 0.07f)),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.5.dp, RestrictionRed.copy(alpha = 0.35f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Child Name:", fontSize = 12.sp, color = TextSecondary)
+                            Text(
+                                text = sosAlert.childName.ifBlank { "Child" },
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
+
+                        if (sosAlert.childCode.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Child ID / Pairing Code:", fontSize = 12.sp, color = TextSecondary)
+                                Text(
+                                    text = sosAlert.childCode,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = BrandBlue
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = RestrictionRed.copy(alpha = 0.2f))
+
+                        Text(
+                            text = sosAlert.message.ifBlank { "Child triggered an Emergency SOS! Please check on them immediately." },
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+
+                        // Live Location Info & Maps Button
+                        val lat = sosAlert.latitude
+                        val lng = sosAlert.longitude
+                        if (lat != 0.0 && lng != 0.0) {
+                            HorizontalDivider(color = RestrictionRed.copy(alpha = 0.2f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Live GPS Coordinates:", fontSize = 11.sp, color = TextSecondary)
+                                Text(
+                                    text = String.format(java.util.Locale.US, "%.5f, %.5f", lat, lng),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SafeGreen
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    try {
+                                        val geoUri = android.net.Uri.parse("geo:$lat,$lng?q=$lat,$lng(${android.net.Uri.encode(sosAlert.childName + " SOS Location")})")
+                                        val mapIntent = Intent(Intent.ACTION_VIEW, geoUri)
+                                        mapIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        context.startActivity(mapIntent)
+                                    } catch (_: Exception) {
+                                        try {
+                                            val webUri = android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng")
+                                            val webIntent = Intent(Intent.ACTION_VIEW, webUri)
+                                            webIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            context.startActivity(webIntent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Cannot open map app: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(44.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = SafeGreen),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Filled.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Open Live GPS in Google Maps", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // Call Action Button
+                        Button(
+                            onClick = {
+                                try {
+                                    val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        data = android.net.Uri.parse("tel:")
+                                    }
+                                    context.startActivity(dialIntent)
+                                } catch (_: Exception) {}
+                            },
+                            modifier = Modifier.fillMaxWidth().height(40.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Open Phone Dialer / Call", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        com.homesync.app.service.HomeSyncForegroundService.stopAlarm(context)
+                        dismissedAlertIds.add(sosAlert.id)
+                        activeEmergencySosAlert = null
+                        coroutineScope.launch(Dispatchers.IO) {
+                            NotificationManager.markAsRead(context, sosAlert.id)
+                            val freshNotifs = NotificationManager.getNotifications(context)
+                            withContext(Dispatchers.Main) {
+                                notificationsList = freshNotifs
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RestrictionRed),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text(
+                        "🔕 Silence Alarm & Dismiss",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            },
+            dismissButton = null,
+            containerColor = CardWhite,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    // Real-Time Popup Alert Modal for Incoming Child Check-Ins & General Alerts
     liveCheckInAlertNotification?.let { notif ->
         AlertDialog(
             onDismissRequest = {
@@ -2014,10 +2325,14 @@ fun GuardianHomeScreen(
                         coroutineScope.launch(Dispatchers.IO) {
                             NotificationManager.markAsRead(context, notif.id)
                             val freshNotifs = NotificationManager.getNotifications(context)
-                            val freshQuests = ChildQuestManager.getQuests(context, activeChildCode)
+                            val safeCode = notif.childCode.ifBlank { activeChildCode }
+                            val safeUid = notif.childUid.ifBlank { selectedChildUid }
+                            val liveTasks = tasksByChild[safeUid] ?: tasksByChild[safeCode] ?: ChildQuestManager.getQuests(context, safeCode)
                             withContext(Dispatchers.Main) {
                                 notificationsList = freshNotifs
-                                childQuestsList = freshQuests
+                                if (liveTasks.isNotEmpty()) {
+                                    childQuestsList = liveTasks
+                                }
                             }
                         }
                     },
@@ -2567,8 +2882,18 @@ fun GuardianHomeScreen(
                                                     } else {
                                                         ChildQuestManager.getQuests(context, childCode)
                                                     }
-                                                    remainingSeconds = ScreenTimeManager.getRemainingSeconds(context, childCode)
-                                                    isLocked = ScreenTimeManager.isDeviceLocked(context, childCode)
+                                                    val cState = screenTimeByChild[childCode]
+                                                    if (cState != null) {
+                                                        remainingSeconds = cState.remainingSeconds
+                                                        isLocked = cState.isLocked
+                                                        usedSeconds = cState.usedSeconds
+                                                        totalAllowanceSeconds = cState.totalAllowanceSeconds
+                                                    } else {
+                                                        remainingSeconds = ScreenTimeManager.getRemainingSeconds(context, childCode)
+                                                        isLocked = ScreenTimeManager.isDeviceLocked(context, childCode)
+                                                        usedSeconds = ScreenTimeManager.getUsedSeconds(context, childCode)
+                                                        totalAllowanceSeconds = ScreenTimeManager.getTotalAllowance(context, childCode)
+                                                    }
                                                     Toast.makeText(context, "Switched active child to $cleanName", Toast.LENGTH_SHORT).show()
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
@@ -3070,8 +3395,7 @@ private fun ChildDetailDialog(
                         }
                         if (liveUsedSeconds != null && liveAllowanceSeconds != null) {
                             val used = ScreenTimeManager.formatHoursAndMinutes(liveUsedSeconds!!)
-                            val allowanceH = liveAllowanceSeconds!! / 3600
-                            Text("Used: $used today (Allowance: ${allowanceH}h)", fontSize = 11.sp, color = TextSecondary)
+                            Text("Used: $used today (Allowance: ${ScreenTimeManager.formatHoursAndMinutes(liveAllowanceSeconds!!)})", fontSize = 11.sp, color = TextSecondary)
                         }
                     }
                 }
@@ -3611,11 +3935,9 @@ fun GuardianTasksTabView(
         val list = mutableListOf<DisplayTaskItem>()
         if (selectedFilterChildUid == "ALL") {
             for (child in approvedChildren) {
-                val childTasks = if (activeFamilyId.isNotBlank()) {
-                    tasksByChild[child.childUid] ?: emptyList()
-                } else {
-                    tasksByChild[child.childUid] ?: ChildQuestManager.getQuests(context, child.childCode)
-                }
+                val childTasks = tasksByChild[child.childUid]
+                    ?: tasksByChild[child.childCode]
+                    ?: (if (child.childCode.isNotBlank()) ChildQuestManager.getQuests(context, child.childCode) else emptyList())
                 for (q in childTasks) {
                     list.add(DisplayTaskItem(q, child.childUid, child.childCode, child.name))
                 }
@@ -3624,11 +3946,9 @@ fun GuardianTasksTabView(
             val child = approvedChildren.find { it.childUid == selectedFilterChildUid }
             val cName = child?.name ?: "Child"
             val cCode = child?.childCode ?: ""
-            val childTasks = if (activeFamilyId.isNotBlank()) {
-                tasksByChild[selectedFilterChildUid] ?: emptyList()
-            } else {
-                tasksByChild[selectedFilterChildUid] ?: (if (cCode.isNotBlank()) ChildQuestManager.getQuests(context, cCode) else emptyList())
-            }
+            val childTasks = tasksByChild[selectedFilterChildUid]
+                ?: (if (cCode.isNotBlank()) tasksByChild[cCode] else null)
+                ?: (if (cCode.isNotBlank()) ChildQuestManager.getQuests(context, cCode) else emptyList())
             for (q in childTasks) {
                 list.add(DisplayTaskItem(q, selectedFilterChildUid, cCode, cName))
             }
@@ -3799,6 +4119,7 @@ fun GuardianTasksTabView(
                                 mutableStateOf(com.homesync.app.util.TaskProofImageManager.getProofBitmap(context, quest.photoProofUri, quest.id))
                             }
                             LaunchedEffect(quest.photoProofUri, quest.id) {
+                                android.util.Log.i("HomeSyncLatency", "TASK_PROOF_GUARDIAN_DISPLAYED taskId=${quest.id} childUid=${quest.childUserId.ifBlank { selectedChildUid }} timestamp=${System.currentTimeMillis()}")
                                 com.homesync.app.util.TaskProofImageManager.loadProofBitmap(context, quest.photoProofUri, quest.id) { loaded ->
                                     proofBitmap = loaded
                                 }
@@ -4311,7 +4632,10 @@ fun GuardianSettingsTabView(
                 rules = updatedRules
                 ParentalControlManager.syncRulesToCloud(context, updatedRules, activeFamilyId)
                 if (activeChildCode.isNotBlank()) {
-                    ScreenTimeManager.setDailyAllowanceAsCommand(context, activeChildCode, allowanceSeconds)
+                    val clickTs = System.currentTimeMillis()
+                    val cmdId = "SET_DAILY_LIMIT_${activeChildCode}_$clickTs"
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=SET_DAILY_LIMIT childCode=$activeChildCode path=hs_screentime/$activeChildCode timestamp=$clickTs")
+                    ScreenTimeManager.setDailyAllowanceAsCommand(context, activeChildCode, allowanceSeconds, cmdId)
                 }
                 Toast.makeText(context, "Rules & Daily Limit ($displayStr) synced to child device", Toast.LENGTH_SHORT).show()
             },

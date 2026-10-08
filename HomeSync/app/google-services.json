@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "136088147782",
+    "firebase_url": "https://homesync-app-4cee2-default-rtdb.firebaseio.com",
     "project_id": "homesync-app-4cee2",
     "storage_bucket": "homesync-app-4cee2.firebasestorage.app"
   },

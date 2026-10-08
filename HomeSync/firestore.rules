@@ -98,7 +98,7 @@ service cloud.firestore {
         // Member updating their own non-privileged details (presence/lastActive/profilePictureUrl)
         allow update: if isUser(memberUserId) && isMemberOfFamily(familyId) && (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'profilePictureUrl', 'lastActiveTime', 'isOnline', 'name', 'displayName', 'updatedAt'
+            'profilePictureUrl', 'lastActiveTime', 'isOnline', 'name', 'displayName', 'updatedAt', 'childCode'
           ])
         );
 
@@ -139,6 +139,12 @@ service cloud.firestore {
         match /rewards/{rewardDoc} {
           allow read: if isSignedIn() && (isGuardianOfFamily(familyId) || isUser(memberUserId) || isMemberOfFamily(familyId));
           allow write: if isSignedIn() && (isGuardianOfFamily(familyId) || isUser(memberUserId));
+        }
+
+        // Cloud tombstones for deleted tasks
+        // Path: hs_families/{familyId}/members/{memberUserId}/tombstones/{tombstoneId}
+        match /tombstones/{tombstoneId} {
+          allow read, write: if isSignedIn() && (isGuardianOfFamily(familyId) || isUser(memberUserId) || isMemberOfFamily(familyId));
         }
       }
 

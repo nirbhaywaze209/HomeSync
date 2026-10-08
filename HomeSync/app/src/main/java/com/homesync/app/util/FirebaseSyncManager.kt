@@ -332,7 +332,18 @@ object FirebaseSyncManager {
         context: Context,
         onNotificationReceived: (SystemNotification) -> Unit
     ): ListenerRegistration? {
-        val rtdbCancel = FirebaseRealtimeSyncManager.listenNotifications(onNotificationReceived)
+        val deliveredNotifIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+        val deduplicatedCallback: (SystemNotification) -> Unit = { notif ->
+            if (notif.id.isNotBlank()) {
+                if (deliveredNotifIds.add(notif.id)) {
+                    onNotificationReceived(notif)
+                }
+            } else {
+                onNotificationReceived(notif)
+            }
+        }
+
+        val rtdbCancel = FirebaseRealtimeSyncManager.listenNotifications(deduplicatedCallback)
 
         val db = getDb()
         val firestoreRegistration = try {
@@ -375,7 +386,7 @@ object FirebaseSyncManager {
                                 familyId = familyId,
                                 childUid = childUid
                             )
-                            onNotificationReceived(notif)
+                            deduplicatedCallback(notif)
                         }
                     }
                 }
@@ -845,7 +856,7 @@ object FirebaseSyncManager {
         totalAllowance: Int,
         usedSeconds: Int = (totalAllowance - remainingSeconds).coerceAtLeast(0),
         date: String = ScreenTimeManager.getCurrentScreenTimeDate(),
-        resetVersion: Long = System.currentTimeMillis(),
+        resetVersion: Long? = null,
         commandId: String? = null,
         commandTimestamp: Long? = null,
         curfewOverride: Boolean? = null,
@@ -864,9 +875,13 @@ object FirebaseSyncManager {
                 "remainingSeconds" to remainingSeconds,
                 "totalAllowance" to totalAllowance,
                 "usedSeconds" to usedSeconds,
-                "resetVersion" to resetVersion,
                 "updatedAt" to System.currentTimeMillis()
             )
+
+            // ONLY write resetVersion when explicitly provided (genuine reset)
+            if (resetVersion != null && resetVersion > 0L) {
+                payload["resetVersion"] = resetVersion
+            }
 
             // Only GUARDIAN commands can unlock; child telemetry can only report locked=true (e.g. quota exhausted)
             if (sourceRole == "GUARDIAN" || isLocked) {
@@ -912,6 +927,15 @@ object FirebaseSyncManager {
         childCode: String,
         onUpdate: (remainingSeconds: Int, isLocked: Boolean, totalAllowance: Int) -> Unit
     ): ListenerRegistration? {
+        return listenScreenTimeFromCloudWithUsed(childCode) { rem, locked, tot, _ ->
+            onUpdate(rem, locked, tot)
+        }
+    }
+
+    fun listenScreenTimeFromCloudWithUsed(
+        childCode: String,
+        onUpdate: (remainingSeconds: Int, isLocked: Boolean, totalAllowance: Int, usedSeconds: Int) -> Unit
+    ): ListenerRegistration? {
         val cleanCode = childCode.trim().uppercase()
         if (cleanCode.isBlank()) return null
         val db = getDb() ?: return null
@@ -924,8 +948,9 @@ object FirebaseSyncManager {
                     val rem = (snapshot.getLong("remainingSeconds") ?: 21600L).toInt()
                     val locked = snapshot.getBoolean("isLocked") ?: false
                     val tot = (snapshot.getLong("totalAllowance") ?: 21600L).toInt()
+                    val used = (snapshot.getLong("usedSeconds") ?: (tot - rem).coerceAtLeast(0).toLong()).toInt()
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        onUpdate(rem, locked, tot)
+                        onUpdate(rem, locked, tot, used)
                     }
                 }
         } catch (e: Exception) {

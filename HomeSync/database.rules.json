@@ -1,0 +1,189 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "hs_screentime": {
+      "$childCode": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['updatedAt']) || newData.hasChildren(['telemetryTimestamp']) || newData.hasChildren(['commandTimestamp']) || newData.hasChildren(['usedSeconds']) || newData.hasChildren(['remainingSeconds'])",
+        "childCode": { ".validate": "newData.isString()" },
+        "targetChildId": { ".validate": "newData.isString()" },
+        "commandId": { ".validate": "newData.isString()" },
+        "commandType": { ".validate": "newData.isString()" },
+        "commandTimestamp": { ".validate": "newData.isNumber()" },
+        "date": { ".validate": "newData.isString()" },
+        "remoteLock": { ".validate": "newData.isBoolean()" },
+        "isLocked": { ".validate": "newData.isBoolean()" },
+        "remoteAllowance": { ".validate": "newData.isNumber()" },
+        "totalAllowance": { ".validate": "newData.isNumber()" },
+        "remainingSeconds": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "usedSeconds": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "resetVersion": { ".validate": "newData.isNumber()" },
+        "telemetryTimestamp": { ".validate": "newData.isNumber()" },
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "sourceRole": { ".validate": "newData.isString()" },
+        "curfewOverride": { ".validate": "newData.isBoolean()" },
+        "curfewOverrideTimestamp": { ".validate": "newData.isNumber()" },
+        "extraSeconds": { ".validate": "newData.isNumber()" }
+      }
+    },
+
+    "hs_child_profiles": {
+      ".read": "auth != null",
+      "$childCode": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['isConnected']) || newData.hasChildren(['name']) || newData.hasChildren(['lastActiveTime'])",
+        "childCode": { ".validate": "newData.isString()" },
+        "name": { ".validate": "newData.isString()" },
+        "avatarBase64": { ".validate": "newData.isString()" },
+        "rewardStars": { ".validate": "newData.isNumber()" },
+        "levelLabel": { ".validate": "newData.isString()" },
+        "xpProgress": { ".validate": "newData.isNumber()" },
+        "streakDays": { ".validate": "newData.isNumber()" },
+        "isConnected": { ".validate": "newData.isBoolean()" },
+        "lastActiveTime": { ".validate": "newData.isNumber()" }
+      }
+    },
+
+    "hs_guardian_profiles": {
+      "$childCode": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['guardianName']) || newData.hasChildren(['isConnected'])",
+        "guardianName": { ".validate": "newData.isString()" },
+        "childCode": { ".validate": "newData.isString()" },
+        "email": { ".validate": "newData.isString()" },
+        "avatarBase64": { ".validate": "newData.isString()" },
+        "isConnected": { ".validate": "newData.isBoolean()" },
+        "updatedAt": { ".validate": "newData.isNumber()" }
+      }
+    },
+
+    "hs_locations": {
+      "$childCode": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['latitude', 'longitude', 'timestamp'])",
+        "childCode": { ".validate": "newData.isString()" },
+        "childName": { ".validate": "newData.isString()" },
+        "latitude": { ".validate": "newData.isNumber()" },
+        "longitude": { ".validate": "newData.isNumber()" },
+        "address": { ".validate": "newData.isString()" },
+        "timestamp": { ".validate": "newData.isNumber()" }
+      }
+    },
+
+    "hs_notifications": {
+      ".read": true,
+      "$notificationId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+
+    "hs_parental_controls": {
+      "$childCode": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['curfewEnabled']) || newData.hasChildren(['updatedAt'])"
+      }
+    },
+
+    "hs_safe_zones": {
+      "$familyId": {
+        ".read": "auth != null",
+        "$zoneId": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          ".validate": "!newData.exists() || newData.hasChildren(['name', 'latitude', 'longitude', 'radiusMeters'])",
+          "id": { ".validate": "newData.isString()" },
+          "name": { ".validate": "newData.isString()" },
+          "icon": { ".validate": "newData.isString()" },
+          "latitude": { ".validate": "newData.isNumber()" },
+          "longitude": { ".validate": "newData.isNumber()" },
+          "radiusMeters": { ".validate": "newData.isNumber()" },
+          "colorHex": { ".validate": "newData.isString()" },
+          "updatedAt": { ".validate": "newData.isNumber()" }
+        }
+      }
+    },
+
+    "hs_family_tasks": {
+      "$familyId": {
+        "$childUserId": {
+          ".read": true,
+          ".write": true,
+          "$taskId": {
+            ".read": true,
+            ".write": true
+          }
+        }
+      }
+    },
+
+    "hs_quests": {
+      "$childCode": {
+        ".read": true,
+        ".write": true
+      }
+    },
+
+    "hs_family_tombstones": {
+      "$familyId": {
+        "$childUserId": {
+          ".read": true,
+          ".write": true,
+          "$taskId": {
+            ".read": true,
+            ".write": true
+          }
+        }
+      }
+    },
+
+    "hs_family_rewards": {
+      "$familyId": {
+        "$childUserId": {
+          ".read": true,
+          ".write": true
+        }
+      }
+    },
+
+    "hs_family_child_codes": {
+      "$familyId": {
+        ".read": true,
+        "$childUid": {
+          ".read": true,
+          ".write": true
+        }
+      }
+    },
+
+      "hs_cooldowns": {
+        "$cooldownKey": {
+          ".read": "auth != null",
+          ".write": "auth != null",
+          ".validate": "!newData.exists() || newData.hasChildren(['childUid', 'action', 'lastUsedTimestamp'])",
+          "childUid": { ".validate": "newData.isString()" },
+          "action": { ".validate": "newData.isString()" },
+          "familyId": { ".validate": "newData.isString()" },
+          "lastUsedTimestamp": { ".validate": "newData.isNumber()" }
+        }
+      },
+
+      "hs_sos": {
+        "$familyId": {
+          ".read": "auth != null",
+          "$childCode": {
+            ".read": "auth != null",
+            ".write": "auth != null",
+            ".validate": "!newData.exists() || newData.hasChildren(['active', 'timestamp'])"
+          }
+        }
+      }
+    }
+  }

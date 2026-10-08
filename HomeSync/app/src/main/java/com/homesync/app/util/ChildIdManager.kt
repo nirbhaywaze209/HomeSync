@@ -242,8 +242,10 @@ object ChildIdManager {
 
         // If child was previously unpaired, re-enable it on explicit add
         val unpaired = (prefs.getStringSet("unpaired_child_codes", emptySet()) ?: emptySet()).toMutableSet()
-        if (unpaired.contains(cleanCode)) {
-            unpaired.remove(cleanCode)
+        var changed = false
+        if (unpaired.remove(cleanCode)) changed = true
+        if (cleanName.isNotBlank() && unpaired.remove(cleanName.uppercase())) changed = true
+        if (changed) {
             prefs.edit().putStringSet("unpaired_child_codes", unpaired).apply()
         }
 
@@ -271,8 +273,10 @@ object ChildIdManager {
 
         // Remove from unpaired set if the guardian explicitly re-adds via cloud
         val unpaired = (prefs.getStringSet("unpaired_child_codes", emptySet()) ?: emptySet()).toMutableSet()
-        if (unpaired.contains(cleanCode)) {
-            unpaired.remove(cleanCode)
+        var changed = false
+        if (unpaired.remove(cleanCode)) changed = true
+        if (cleanName.isNotBlank() && unpaired.remove(cleanName.uppercase())) changed = true
+        if (changed) {
             prefs.edit().putStringSet("unpaired_child_codes", unpaired).apply()
         }
 
@@ -389,6 +393,16 @@ object ChildIdManager {
         val seenCodes = mutableSetOf<String>()
         val unpairedCodes = (prefs.getStringSet("unpaired_child_codes", emptySet()) ?: emptySet()).map { it.uppercase() }.toSet()
 
+        // Gather approved family children so they are never accidentally hidden by stale unpair entries
+        val approvedFamilyChildNames = try {
+            FamilyManager.getCachedMembers(context)
+                .filter { it.role == FamilyRole.CHILD && it.status == MemberStatus.APPROVED }
+                .map { formatChildName(it.name).uppercase() }
+                .toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
+
         val editor = prefs.edit()
         var needsClean = false
         for ((key, value) in prefs.all) {
@@ -403,7 +417,9 @@ object ChildIdManager {
                 }
                 val cleanName = formatChildName(rawName)
                 val code = value.trim().uppercase()
-                if (code.isNotBlank() && !seenCodes.contains(code) && !unpairedCodes.contains(code) && !unpairedCodes.contains(cleanName.uppercase())) {
+                val isApprovedFamilyMember = approvedFamilyChildNames.contains(cleanName.uppercase())
+                val isExplicitlyUnpaired = !isApprovedFamilyMember && (unpairedCodes.contains(code) || unpairedCodes.contains(cleanName.uppercase()))
+                if (code.isNotBlank() && !seenCodes.contains(code) && !isExplicitlyUnpaired) {
                     result.add(Pair(cleanName, code))
                     seenCodes.add(code)
                 }
@@ -459,8 +475,14 @@ object ChildIdManager {
             return mem.childCode.trim().uppercase()
         }
 
-        // 2. Check local saved children by clean name
+        // 2. Check local direct saved mapping by clean name
         val cleanName = formatChildName(childName)
+        val prefs = getPrefs(context)
+        val directSavedCode = prefs.getString("$KEY_PREFIX_CHILD_ID${cleanName.lowercase()}", "")?.trim()?.uppercase() ?: ""
+        if (directSavedCode.isNotBlank() && directSavedCode.startsWith("HS-", ignoreCase = true)) {
+            return directSavedCode
+        }
+
         val saved = getAllSavedChildren(context)
         val byName = saved.find { it.first.equals(cleanName, ignoreCase = true) }
         if (byName != null && byName.second.startsWith("HS-", ignoreCase = true)) {
@@ -476,6 +498,13 @@ object ChildIdManager {
         val anyHs = saved.firstOrNull { it.second.startsWith("HS-", ignoreCase = true) }
         if (anyHs != null) {
             return anyHs.second.trim().uppercase()
+        }
+
+        // CRITICAL: On a GUARDIAN device, NEVER return the guardian's own deviceChildId!
+        // Returning the guardian's device ID causes the guardian to monitor itself instead of the child.
+        val role = FamilyManager.getStoredUserRole(context)
+        if (role == FamilyRole.GUARDIAN) {
+            return if (cleanUid.isNotBlank()) cleanUid else ""
         }
 
         return getDeviceChildId(context)

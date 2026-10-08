@@ -65,6 +65,7 @@ object FamilyTaskManager {
             "taskId" to cleanTaskId,
             "childUserId" to cleanChildUserId,
             "familyId" to cleanFamilyId,
+            "timestamp" to System.currentTimeMillis(),
             "deletedAt" to System.currentTimeMillis()
         )
 
@@ -190,14 +191,33 @@ object FamilyTaskManager {
 
                 val chosen = when {
                     rtdbItem != null && firestoreItem != null -> {
-                        if (rtdbVersion >= firestoreVersion) {
+                        // Priority guard: NEVER let a stale PENDING state overwrite SUBMITTED or APPROVED
+                        if (rtdbItem.status == QuestStatus.APPROVED && firestoreItem.status != QuestStatus.APPROVED) {
+                            rtdbItem
+                        } else if (firestoreItem.status == QuestStatus.APPROVED && rtdbItem.status != QuestStatus.APPROVED) {
+                            firestoreItem
+                        } else if (rtdbItem.status == QuestStatus.SUBMITTED && firestoreItem.status == QuestStatus.PENDING) {
+                            rtdbItem
+                        } else if (firestoreItem.status == QuestStatus.SUBMITTED && rtdbItem.status == QuestStatus.PENDING) {
+                            firestoreItem
+                        } else if (rtdbVersion >= firestoreVersion) {
                             if (rtdbVersion > firestoreVersion) {
                                 Log.i(TAG, "TASK_RECONCILE_STALE_IGNORED taskId=$id chosenSource=RTDB winningVersion=$rtdbVersion rejectedSource=Firestore rejectedVersion=$firestoreVersion")
                             }
-                            rtdbItem
+                            // Preserve proof URI if RTDB lacks it but Firestore has it
+                            if (rtdbItem.photoProofUri.isBlank() && firestoreItem.photoProofUri.isNotBlank()) {
+                                rtdbItem.copy(photoProofUri = firestoreItem.photoProofUri, photoProofLabel = firestoreItem.photoProofLabel)
+                            } else {
+                                rtdbItem
+                            }
                         } else {
                             Log.i(TAG, "TASK_RECONCILE_STALE_IGNORED taskId=$id chosenSource=Firestore winningVersion=$firestoreVersion rejectedSource=RTDB rejectedVersion=$rtdbVersion")
-                            firestoreItem
+                            // Preserve proof URI if Firestore lacks it but RTDB has it
+                            if (firestoreItem.photoProofUri.isBlank() && rtdbItem.photoProofUri.isNotBlank()) {
+                                firestoreItem.copy(photoProofUri = rtdbItem.photoProofUri, photoProofLabel = rtdbItem.photoProofLabel)
+                            } else {
+                                firestoreItem
+                            }
                         }
                     }
                     rtdbItem != null -> rtdbItem
@@ -747,8 +767,8 @@ object FamilyTaskManager {
             return
         }
 
-        if (!photoUri.startsWith("https://") && !photoUri.startsWith("file://") && !photoUri.startsWith("content://") && !photoUri.startsWith("local_proof_")) {
-            Log.e(TAG, "TASK_PROOF_SUBMIT_FAILED taskId=$questId error=invalid_proof_uri photoUri=$photoUri")
+        if (!photoUri.startsWith("https://")) {
+            Log.e(TAG, "TASK_PROOF_SUBMIT_FAILED taskId=$questId error=invalid_proof_uri_must_be_https photoUri=$photoUri")
             onComplete(false)
             return
         }
@@ -760,29 +780,85 @@ object FamilyTaskManager {
         }
 
         val now = System.currentTimeMillis()
-        val updates = hashMapOf<String, Any>(
+
+        // 1. Resolve complete existing task to write a full object with setValue (identical to createTask & verifyTask)
+        val existingTask = activeSyncStates[cleanChildUserId]?.latestRtdbTasks?.get(questId)
+            ?: activeSyncStates[cleanChildUserId]?.latestFirestoreTasks?.get(questId)
+            ?: ChildQuestManager.getQuests(context, deviceChildCode).find { it.id == questId }
+            ?: ChildQuest(
+                id = questId,
+                title = photoLabel.ifBlank { "Task" },
+                rewardStars = 20,
+                dueTime = "Due 8:00 PM",
+                status = QuestStatus.SUBMITTED,
+                photoProofLabel = photoLabel,
+                photoProofUri = photoUri,
+                submittedAt = now,
+                updatedAt = now,
+                familyId = cleanFamilyId,
+                childUserId = cleanChildUserId
+            )
+
+        val updatedTask = existingTask.copy(
+            status = QuestStatus.SUBMITTED,
+            photoProofLabel = photoLabel,
+            photoProofUri = photoUri,
+            submittedAt = now,
+            updatedAt = now
+        )
+
+        // Complete full payload matching createTask schema
+        val fullTaskData = hashMapOf<String, Any>(
+            "id" to updatedTask.id,
+            "title" to updatedTask.title,
+            "rewardStars" to updatedTask.rewardStars,
+            "dueTime" to updatedTask.dueTime,
             "status" to QuestStatus.SUBMITTED.name,
             "photoProofLabel" to photoLabel,
             "photoProofUri" to photoUri,
             "submittedAt" to now,
-            "updatedAt" to now
+            "updatedAt" to now,
+            "rewardApplied" to updatedTask.rewardApplied,
+            "familyId" to cleanFamilyId,
+            "childUserId" to cleanChildUserId,
+            "createdByUserId" to updatedTask.createdByUserId,
+            "createdAt" to (if (updatedTask.createdAt > 0) updatedTask.createdAt else now)
         )
 
-        // 1. Dual-sync to Realtime Database
-        val rtdb = getRtdb()
-        rtdb?.getReference(RTDB_TASKS)
-            ?.child(cleanFamilyId)
-            ?.child(cleanChildUserId)
-            ?.child(questId)
-            ?.updateChildren(updates)
-            ?.addOnSuccessListener {
-                Log.i(TAG, "TASK_PROOF_UPDATE_RTDB_SUCCESS taskId=$questId")
-            }
-            ?.addOnFailureListener { e ->
-                Log.e(TAG, "TASK_PROOF_UPDATE_RTDB_FAILED taskId=$questId error=${e.message}", e)
-            }
+        // 2. Instantly update active sync state on device for immediate zero-latency UI response
+        activeSyncStates[cleanChildUserId]?.let { syncState ->
+            syncState.latestRtdbTasks[questId] = updatedTask
+            syncState.latestFirestoreTasks[questId] = updatedTask
+            syncState.reconcileAndNotify()
+        }
 
-        // 2. Dual-sync to Firestore
+        // Call completion immediately to unlock child UI without waiting on network roundtrips
+        mainHandler.post { onComplete(true) }
+
+        // 3. Write FULL payload to RTDB using setValue (bypasses partial-update validation issues)
+        val rtdb = getRtdb()
+        if (rtdb != null) {
+            rtdb.getReference(RTDB_TASKS)
+                .child(cleanFamilyId)
+                .child(cleanChildUserId)
+                .child(questId)
+                .setValue(fullTaskData)
+                .addOnSuccessListener {
+                    android.util.Log.i("HomeSyncLatency", "TASK_PROOF_RTDB_WRITE taskId=$questId childUid=$cleanChildUserId status=SUBMITTED timestamp=${System.currentTimeMillis()}")
+                    Log.i(TAG, "TASK_PROOF_UPDATE_RTDB_SUCCESS taskId=$questId")
+                }
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "TASK_PROOF_UPDATE_RTDB_FAILED taskId=$questId error=${e.message}", e)
+                    // Fallback to updateChildren if setValue encounters node permission issues
+                    rtdb.getReference(RTDB_TASKS)
+                        .child(cleanFamilyId)
+                        .child(cleanChildUserId)
+                        .child(questId)
+                        .updateChildren(fullTaskData as Map<String, Any>)
+                }
+        }
+
+        // 4. Dual-sync to Firestore
         val db = getDb()
         val docRef = db?.collection(COLLECTION_FAMILIES)
             ?.document(cleanFamilyId)
@@ -791,7 +867,7 @@ object FamilyTaskManager {
             ?.collection(COLLECTION_TASKS)
             ?.document(questId)
 
-        docRef?.update(updates as Map<String, Any>)
+        docRef?.set(fullTaskData, SetOptions.merge())
             ?.addOnSuccessListener {
                 Log.i(TAG, "TASK_PROOF_UPLOAD_SUCCESS taskId=$questId")
                 Log.i(TAG, "TASK_PROOF_UPDATE_FIRESTORE_SUCCESS taskId=$questId")
@@ -799,55 +875,50 @@ object FamilyTaskManager {
                 Log.i(TAG, "TASK_GUARDIAN_PROOF_RECEIVED taskId=$questId")
             }
             ?.addOnFailureListener { e ->
-                Log.w(TAG, "TASK_PROOF_SUBMIT_UPDATE_FAILED taskId=$questId, trying set merge: ${e.message}")
-                docRef.set(updates, SetOptions.merge())
-                    .addOnSuccessListener {
-                        Log.i(TAG, "TASK_PROOF_UPLOAD_SUCCESS taskId=$questId")
-                        Log.i(TAG, "TASK_PROOF_UPDATE_FIRESTORE_SUCCESS taskId=$questId")
-                        Log.i(TAG, "TASK_PROOF_UPDATE_SUCCESS taskId=$questId")
-                        Log.i(TAG, "TASK_GUARDIAN_PROOF_RECEIVED taskId=$questId")
-                    }
-                    .addOnFailureListener { e2 ->
-                        Log.e(TAG, "TASK_PROOF_SUBMIT_FIRESTORE_FAILED taskId=$questId error=${e2.message}", e2)
-                    }
+                Log.e(TAG, "TASK_PROOF_SUBMIT_FIRESTORE_FAILED taskId=$questId error=${e.message}", e)
             }
 
-        // Notify guardian across cloud & local with full family context
-        val proofNotifId = "proof_submitted_${questId}_${now}"
-        NotificationManager.addNotification(
-            context,
-            SystemNotification(
-                id = proofNotifId,
-                title = "Task Photo Verification Required 📷",
-                message = "Photo proof submitted by $childName. Please verify to award stars!",
-                type = NotificationType.TASK_PHOTO_SUBMITTED,
-                childName = childName,
-                childCode = deviceChildCode,
-                actionData = questId,
-                targetRole = "GUARDIAN",
-                familyId = cleanFamilyId,
-                childUid = cleanChildUserId
-            )
-        )
-
-        // Instantly update active sync state for zero-latency UI response
-        activeSyncStates[cleanChildUserId]?.let { syncState ->
-            val existing = syncState.latestRtdbTasks[questId] ?: syncState.latestFirestoreTasks[questId]
-            if (existing != null) {
-                val updated = existing.copy(
-                    status = QuestStatus.SUBMITTED,
-                    photoProofLabel = photoLabel,
-                    photoProofUri = photoUri,
-                    submittedAt = now,
-                    updatedAt = now
-                )
-                syncState.latestRtdbTasks[questId] = updated
-                syncState.latestFirestoreTasks[questId] = updated
-                syncState.reconcileAndNotify()
+        // 5. Dual-sync to pairing-code legacy pipeline (hs_quests) so Guardian receives it regardless of query mode
+        if (deviceChildCode.isNotBlank()) {
+            try {
+                val allQuests = ChildQuestManager.getQuests(context, deviceChildCode)
+                val mergedQuests = allQuests.map { if (it.id == questId) updatedTask else it }
+                val finalList = if (mergedQuests.any { it.id == questId }) mergedQuests else (mergedQuests + updatedTask)
+                ChildQuestManager.saveQuestsFromCloud(context, deviceChildCode, finalList)
+                kotlin.concurrent.thread {
+                    try {
+                        FirebaseSyncManager.syncQuestsToCloud(context, deviceChildCode, finalList)
+                        Log.i(TAG, "TASK_PROOF_SYNC_QUESTS_SUCCESS taskId=$questId childCode=$deviceChildCode")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to sync quests to cloud pipeline", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error syncing proof to legacy quests tree", e)
             }
         }
 
-        mainHandler.post { onComplete(true) }
+        // 6. Notify guardian across cloud & local with full family context and Cloud Push
+        val proofNotifId = "proof_submitted_${questId}_${now}"
+        val proofNotif = SystemNotification(
+            id = proofNotifId,
+            title = "Task Photo Verification Required 📷",
+            message = "Photo proof submitted by $childName. Please verify to award stars!",
+            type = NotificationType.TASK_PHOTO_SUBMITTED,
+            childName = childName,
+            childCode = deviceChildCode,
+            actionData = questId,
+            targetRole = "GUARDIAN",
+            familyId = cleanFamilyId,
+            childUid = cleanChildUserId
+        )
+        NotificationManager.addNotification(context, proofNotif)
+        try {
+            FirebaseSyncManager.sendNotificationToCloud(proofNotif)
+            Log.i(TAG, "TASK_PROOF_NOTIFICATION_DISPATCHED taskId=$questId childUserId=$cleanChildUserId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to dispatch task proof notification to cloud", e)
+        }
     }
 
     /**
