@@ -22,6 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "HOMESYNC"
+rootProject.name = "HomeSync"
 include(":app")
- 

@@ -1,0 +1,54 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidImage() {
+      return request.resource.size < 10 * 1024 * 1024 &&
+        (request.resource.contentType.matches('image/.*'));
+    }
+
+    function getRequesterUser() {
+      return firestore.get(/databases/(default)/documents/hs_users/$(request.auth.uid));
+    }
+
+    function getTargetMember(familyId, targetUserId) {
+      return firestore.get(/databases/(default)/documents/hs_families/$(familyId)/members/$(targetUserId));
+    }
+
+    function isApprovedFamilyPhotoUpdate(targetUserId) {
+      return isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/hs_users/$(request.auth.uid)) &&
+        getRequesterUser().data.familyId != null &&
+        (getRequesterUser().data.status == 'APPROVED' || getRequesterUser().data.membershipStatus == 'APPROVED') &&
+        firestore.exists(/databases/(default)/documents/hs_families/$(getRequesterUser().data.familyId)/members/$(targetUserId)) &&
+        getTargetMember(getRequesterUser().data.familyId, targetUserId).data.status == 'APPROVED' &&
+        (
+          // Approved family member updating an approved Guardian
+          getTargetMember(getRequesterUser().data.familyId, targetUserId).data.role == 'GUARDIAN' ||
+          // Approved Guardian updating an approved member in their family
+          getRequesterUser().data.role == 'GUARDIAN'
+        );
+    }
+
+    // Profile photos: profile_photos/{userId}/{fileName}
+    match /profile_photos/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if (isOwner(userId) || isApprovedFamilyPhotoUpdate(userId)) && isValidImage();
+    }
+
+    // Task proof photos: task_proofs/{familyId}/{fileName}
+    match /task_proofs/{familyId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn() && fileName.matches('^' + request.auth.uid + '_.*') && isValidImage();
+    }
+  }
+}
+

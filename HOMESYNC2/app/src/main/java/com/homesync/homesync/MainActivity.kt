@@ -21,7 +21,7 @@ class MainActivity : ComponentActivity() {
             HOMESYNCTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Greeting(
-                        name = "Android",
+                        name ="HOMESYNC",
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
