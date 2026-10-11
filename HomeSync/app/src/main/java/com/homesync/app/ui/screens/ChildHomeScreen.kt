@@ -229,8 +229,8 @@ fun ChildHomeScreen(
                 // Check if current child was explicitly marked REMOVED or REJECTED
                 val isExplicitlyRemoved = members.any {
                     ((it.userId.isNotBlank() && it.userId == currentUserId) ||
-                     (activeChildId.isNotBlank() && it.childCode.equals(activeChildId, ignoreCase = true))) &&
-                    (it.status == MemberStatus.REMOVED || it.status == MemberStatus.REJECTED)
+                            (activeChildId.isNotBlank() && it.childCode.equals(activeChildId, ignoreCase = true))) &&
+                            (it.status == MemberStatus.REMOVED || it.status == MemberStatus.REJECTED)
                 }
                 if (isExplicitlyRemoved && activeFamilyId.isNotBlank()) {
                     android.util.Log.w("ChildHomeScreen", "CHILD_EVICTION: Child $currentUserId / $activeChildId was removed from family $activeFamilyId")
@@ -394,24 +394,23 @@ fun ChildHomeScreen(
         mutableStateOf(ScreenTimeManager.isDeviceLocked(context, activeChildId))
     }
 
-    var lastProcessedCommandId by remember(activeChildId) { 
-        mutableStateOf(ScreenTimeManager.getLastCommandId(context, activeChildId)) 
+    var lastProcessedCommandId by remember(activeChildId) {
+        mutableStateOf(ScreenTimeManager.getLastCommandId(context, activeChildId))
     }
 
-    // Real-time listener for remote Lock and Screen Time commands from Guardian via canonical RTDB hs_screentime/{childCode}
+    // Real-time listener for remote Screen Time telemetry and lock state via canonical RTDB hs_screentime/{childCode}
     DisposableEffect(activeChildId) {
         var cancelRtdb: (() -> Unit)? = null
+        var cancelCommands: (() -> Unit)? = null
 
         if (activeChildId.isNotBlank()) {
             val cleanActiveChild = activeChildId.trim().lowercase()
-            cancelRtdb = FirebaseRealtimeSyncManager.listenScreenTimeWithCommandDetails(activeChildId) { rem, locked, tot, used, cmdId, cmdTimestamp, curfewOverrideFromCloud, targetChildId, commandType, _, cloudResetVersion ->
-                // Per-child command isolation: Ignore command if targeted to another specific child
+
+            // 1. Telemetry and state listener on hs_screentime/{childCode}
+            cancelRtdb = FirebaseRealtimeSyncManager.listenScreenTimeWithCommandDetails(activeChildId) { rem, locked, tot, used, _, _, curfewOverrideFromCloud, targetChildId, _, _, cloudResetVersion ->
+                // Per-child isolation: Ignore if targeted to another specific child
                 val cleanTargetChild = targetChildId.trim().lowercase()
                 if (cleanTargetChild.isNotEmpty() && cleanTargetChild != "all" && cleanTargetChild != cleanActiveChild) {
-                    android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_COMMAND_IGNORED_TARGET_MISMATCH targetChild=$cleanTargetChild currentChild=$cleanActiveChild cmdId=$cmdId")
-                    if (cmdId.isNotBlank() && cmdId != "NONE") {
-                        lastProcessedCommandId = cmdId
-                    }
                     return@listenScreenTimeWithCommandDetails
                 }
 
@@ -434,9 +433,6 @@ fun ChildHomeScreen(
                         ScreenTimeManager.saveRemainingSeconds(context, activeChildId, resetAllowance)
                         ScreenTimeManager.saveUsedSeconds(context, activeChildId, 0)
                         ScreenTimeManager.updateUsageFromChild(context, activeChildId, 0)
-                        if (cmdId.isNotBlank() && cmdId != "NONE") {
-                            lastProcessedCommandId = cmdId
-                        }
                         return@listenScreenTimeWithCommandDetails
                     } else {
                         android.util.Log.d("ChildHomeScreen", "RESET_IGNORED_STALE childCode=$activeChildId cloudVersion=$cloudResetVersion localVersion=$localResetVersion")
@@ -449,186 +445,9 @@ fun ChildHomeScreen(
                     ParentalControlManager.setCurfewOverride(context, activeChildId, true)
                 }
 
-                // Command versioning: check if a new Guardian command arrived
-                if (cmdId.isNotBlank() && cmdId != "NONE" && cmdId != lastProcessedCommandId) {
-                    lastProcessedCommandId = cmdId
-                    val processTs = System.currentTimeMillis()
-                    val effectiveCmdType = if (cmdId.startsWith("LOCK") || commandType.contains("LOCK")) "LOCK_DEVICE"
-                        else if (cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK")) "UNLOCK_DEVICE"
-                        else if (cmdId.startsWith("GRANT_") || commandType == "EXTRA_TIME" || commandType == "GRANT_EXTRA_TIME") "GRANT_EXTRA_TIME"
-                        else if (cmdId.startsWith("RESET") || commandType.startsWith("RESET")) "REMOTE_RESET"
-                        else if (cmdId.startsWith("SET_LIMIT") || commandType == "SET_DAILY_LIMIT") "SET_DAILY_LIMIT"
-                        else commandType.ifBlank { "UNKNOWN" }
-
-                    android.util.Log.i("HomeSyncLatency", "COMMAND_PROCESSING_STARTED commandId=$cmdId commandType=$effectiveCmdType childCode=$activeChildId path=hs_screentime/$activeChildId timestamp=$processTs")
-                    android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_COMMAND_APPLIED childCode=$activeChildId commandId=$cmdId targetChild=$targetChildId commandType=$commandType locked=$locked rem=$rem tot=$tot timestamp=$processTs")
-
-                    if (cmdId.startsWith("LOCK") || commandType.contains("LOCK")) {
-                        isLocked = true
-                        remainingSeconds = 0
-                        ParentalControlManager.setCurfewOverride(context, activeChildId, false)
-                        ScreenTimeManager.setLocalLocked(context, activeChildId, true)
-                        ScreenTimeManager.setRemoteLocked(context, activeChildId, true)
-                        ScreenTimeManager.saveRemainingSeconds(context, activeChildId, 0)
-                        ScreenTimeManager.saveLastCommand(context, activeChildId, cmdId, cmdTimestamp, true)
-                        val applyTs = System.currentTimeMillis()
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_APPLIED commandId=$cmdId commandType=LOCK_DEVICE childCode=$activeChildId latencyMs=${if (cmdTimestamp > 0) applyTs - cmdTimestamp else -1} timestamp=$applyTs")
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=LOCK_DEVICE childCode=$activeChildId path=hs_screentime/$activeChildId timestamp=$applyTs")
-                        android.util.Log.i("HomeSyncLatency", "LOCK_STATE_CHANGED childId=$activeChildId targetChild=$targetChildId locked=true timestamp=$applyTs")
-                        android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_LOCK_STATE locked=true reason=REMOTE_LOCK")
-                        onLockout()
-                        return@listenScreenTimeWithCommandDetails
-                    } else if (cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK")) {
-                        android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=REMOTE_UNLOCK")
-                        isLocked = false
-                        ParentalControlManager.setCurfewOverride(context, activeChildId, true)
-                        ScreenTimeManager.setLocalLocked(context, activeChildId, false)
-                        ScreenTimeManager.setRemoteLocked(context, activeChildId, false)
-                        val actualUsed = ScreenTimeManager.getUsedSeconds(context, activeChildId)
-                        usedSecondsToday = actualUsed
-                        val currentTot = ScreenTimeManager.getTotalAllowance(context, activeChildId)
-                        val effTot = if (tot > 0) tot else (if (currentTot > 0) currentTot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS)
-                        val finalTot = if (effTot <= actualUsed) (actualUsed + (if (rem > 0) rem else 1800)) else effTot
-                        val finalRem = (finalTot - actualUsed).coerceAtLeast(0)
-                        totalAllowance = finalTot
-                        remainingSeconds = finalRem
-                        ScreenTimeManager.saveTotalAllowance(context, activeChildId, finalTot)
-                        ScreenTimeManager.saveRemainingSeconds(context, activeChildId, finalRem)
-                        ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
-                        ScreenTimeManager.saveLastCommand(context, activeChildId, cmdId, cmdTimestamp, false)
-                        val applyTs = System.currentTimeMillis()
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_APPLIED commandId=$cmdId commandType=UNLOCK_DEVICE childCode=$activeChildId latencyMs=${if (cmdTimestamp > 0) applyTs - cmdTimestamp else -1} timestamp=$applyTs")
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=UNLOCK_DEVICE childCode=$activeChildId timestamp=$applyTs")
-
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            if (ScreenTimeManager.hasUsageStatsPermission(context)) {
-                                val bgUsed = ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, activeChildId).coerceAtLeast(0)
-                                if (bgUsed != actualUsed) {
-                                    val bgRem = (finalTot - bgUsed).coerceAtLeast(0)
-                                    ScreenTimeManager.saveUsedSeconds(context, activeChildId, bgUsed)
-                                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, bgRem)
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        usedSecondsToday = bgUsed
-                                        remainingSeconds = bgRem
-                                    }
-                                }
-                            }
-                        }
-                        return@listenScreenTimeWithCommandDetails
-                    } else if (cmdId.startsWith("GRANT_") || commandType == "EXTRA_TIME" || commandType == "GRANT_EXTRA_TIME") {
-                        val currentStoredTot = ScreenTimeManager.getTotalAllowance(context, activeChildId)
-                        val extraSec = cmdId.split("_").mapNotNull { it.toIntOrNull() }.firstOrNull { it in 60..86400 }
-                            ?: (if (tot > 0 && currentStoredTot > 0 && tot > currentStoredTot) (tot - currentStoredTot) else 1800)
-                        android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=GRANT extraSeconds=$extraSec")
-                        isLocked = false
-                        ParentalControlManager.setCurfewOverride(context, activeChildId, true)
-                        ScreenTimeManager.setLocalLocked(context, activeChildId, false)
-                        val actualUsed = ScreenTimeManager.getUsedSeconds(context, activeChildId)
-                        usedSecondsToday = actualUsed
-                        val baseTot = if (currentStoredTot > 0) currentStoredTot else (if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS)
-                        val safeTot = if (baseTot <= actualUsed) (actualUsed + extraSec) else (baseTot + extraSec)
-                        val safeRem = (safeTot - actualUsed).coerceAtLeast(0)
-                        totalAllowance = safeTot
-                        remainingSeconds = safeRem
-                        ScreenTimeManager.saveTotalAllowance(context, activeChildId, safeTot)
-                        ScreenTimeManager.saveRemainingSeconds(context, activeChildId, safeRem)
-                        ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=GRANT_EXTRA_TIME childCode=$activeChildId timestamp=${System.currentTimeMillis()}")
-
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            if (ScreenTimeManager.hasUsageStatsPermission(context)) {
-                                val bgUsed = ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, activeChildId).coerceAtLeast(0)
-                                if (bgUsed != actualUsed) {
-                                    val bgRem = (safeTot - bgUsed).coerceAtLeast(0)
-                                    ScreenTimeManager.saveUsedSeconds(context, activeChildId, bgUsed)
-                                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, bgRem)
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        usedSecondsToday = bgUsed
-                                        remainingSeconds = bgRem
-                                    }
-                                }
-                            }
-                        }
-                        return@listenScreenTimeWithCommandDetails
-                    } else if (cmdId.startsWith("RESET") || commandType.startsWith("RESET")) {
-                        android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=RESET_COMMAND")
-                        isLocked = false
-                        ParentalControlManager.setCurfewOverride(context, activeChildId, true)
-                        ScreenTimeManager.setLocalLocked(context, activeChildId, false)
-                        ScreenTimeManager.setRemoteLocked(context, activeChildId, false)
-                        val resetAllowance = if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
-                        totalAllowance = resetAllowance
-                        remainingSeconds = resetAllowance
-                        usedSecondsToday = 0
-                        ScreenTimeManager.saveTotalAllowance(context, activeChildId, resetAllowance)
-                        ScreenTimeManager.saveRemainingSeconds(context, activeChildId, resetAllowance)
-                        ScreenTimeManager.saveUsedSeconds(context, activeChildId, 0)
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=REMOTE_RESET childCode=$activeChildId timestamp=${System.currentTimeMillis()}")
-
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            ScreenTimeManager.recordResetBaseForChild(context, activeChildId, if (cmdTimestamp > 0) cmdTimestamp else System.currentTimeMillis())
-                            ScreenTimeManager.updateUsageFromChild(context, activeChildId, 0)
-                        }
-                        return@listenScreenTimeWithCommandDetails
-                    } else if (cmdId.startsWith("SET_LIMIT") || commandType == "SET_DAILY_LIMIT") {
-                        val allowanceFromCmd = cmdId.split("_").mapNotNull { it.toIntOrNull() }.firstOrNull { it in 60..86400 }
-                        val newAllowance = allowanceFromCmd ?: (if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS)
-                        android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_SET_DAILY_LIMIT childCode=$activeChildId newAllowance=$newAllowance cmdAllowance=$allowanceFromCmd tot=$tot")
-                        val actualUsed = ScreenTimeManager.getUsedSeconds(context, activeChildId)
-                        usedSecondsToday = actualUsed
-                        val newRem = (newAllowance - actualUsed).coerceAtLeast(0)
-                        totalAllowance = newAllowance
-                        remainingSeconds = newRem
-                        val shouldLock = (newRem <= 0)
-                        isLocked = shouldLock
-                        ScreenTimeManager.saveTotalAllowance(context, activeChildId, newAllowance)
-                        ScreenTimeManager.saveRemainingSeconds(context, activeChildId, newRem)
-                        ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
-                        ScreenTimeManager.setLocalLocked(context, activeChildId, shouldLock)
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=SET_DAILY_LIMIT childCode=$activeChildId timestamp=${System.currentTimeMillis()}")
-                        if (shouldLock) {
-                            onLockout()
-                        } else {
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                if (ScreenTimeManager.hasUsageStatsPermission(context)) {
-                                    val bgUsed = ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, activeChildId).coerceAtLeast(0)
-                                    if (bgUsed != actualUsed) {
-                                        val bgRem = (newAllowance - bgUsed).coerceAtLeast(0)
-                                        val bgLock = (bgRem <= 0)
-                                        ScreenTimeManager.saveUsedSeconds(context, activeChildId, bgUsed)
-                                        ScreenTimeManager.saveRemainingSeconds(context, activeChildId, bgRem)
-                                        ScreenTimeManager.setLocalLocked(context, activeChildId, bgLock)
-                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                            usedSecondsToday = bgUsed
-                                            remainingSeconds = bgRem
-                                            isLocked = bgLock
-                                            if (bgLock) onLockout()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        return@listenScreenTimeWithCommandDetails
-                    }
-                }
-
-                // Normal state sync: only new unprocessed UNLOCK commands or genuine locked=false should clear lock
-                val isExplicitUnlockCmd = (cmdId.isNotBlank() && cmdId != "NONE" && cmdId != lastProcessedCommandId) && (
-                        commandType.contains("UNLOCK", ignoreCase = true) ||
-                        cmdId.startsWith("UNLOCK") ||
-                        commandType.contains("RESET", ignoreCase = true) ||
-                        cmdId.startsWith("RESET")
-                )
-
-                if (isExplicitUnlockCmd || !locked) {
-                    ScreenTimeManager.setRemoteLocked(context, activeChildId, false)
-                    ScreenTimeManager.setLocalLocked(context, activeChildId, false)
-                }
-
-                val isEffectivelyLocked = if (isExplicitUnlockCmd) false else locked
                 val wasLocked = isLocked
-                isLocked = isEffectivelyLocked
-                if (isEffectivelyLocked) {
+                isLocked = locked
+                if (locked) {
                     remainingSeconds = 0
                     ParentalControlManager.setCurfewOverride(context, activeChildId, false)
                     ScreenTimeManager.setRemoteLocked(context, activeChildId, true)
@@ -659,9 +478,182 @@ fun ChildHomeScreen(
                     ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
                 }
             }
+
+            // 2. Dedicated commands listener on hs_commands/{childCode}
+            cancelCommands = FirebaseRealtimeSyncManager.listenChildCommands(activeChildId) { cmdId, commandType, targetChildId, cmdTimestamp, _ ->
+                val cleanTargetChild = targetChildId.trim().lowercase()
+                if (cleanTargetChild.isNotEmpty() && cleanTargetChild != "all" && cleanTargetChild != cleanActiveChild) {
+                    android.util.Log.i("ChildHomeScreen", "COMMAND_IGNORED_TARGET_MISMATCH targetChild=$cleanTargetChild currentChild=$cleanActiveChild cmdId=$cmdId")
+                    return@listenChildCommands
+                }
+
+                lastProcessedCommandId = cmdId
+                val processTs = System.currentTimeMillis()
+                val effectiveCmdType = if (cmdId.startsWith("LOCK") || commandType.contains("LOCK")) "LOCK_DEVICE"
+                else if (cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK")) "UNLOCK_DEVICE"
+                else if (cmdId.startsWith("GRANT_") || commandType == "EXTRA_TIME" || commandType == "GRANT_EXTRA_TIME") "GRANT_EXTRA_TIME"
+                else if (cmdId.startsWith("RESET") || commandType.startsWith("RESET")) "REMOTE_RESET"
+                else if (cmdId.startsWith("SET_LIMIT") || commandType == "SET_DAILY_LIMIT") "SET_DAILY_LIMIT"
+                else commandType.ifBlank { "UNKNOWN" }
+
+                android.util.Log.i("HomeSyncLatency", "COMMAND_PROCESSING_STARTED commandId=$cmdId commandType=$effectiveCmdType childCode=$activeChildId path=hs_commands/$activeChildId/$cmdId timestamp=$processTs")
+                android.util.Log.i("ChildHomeScreen", "COMMAND_APPLIED childCode=$activeChildId commandId=$cmdId targetChild=$targetChildId commandType=$commandType timestamp=$processTs")
+
+                if (cmdId.startsWith("LOCK") || commandType.contains("LOCK")) {
+                    isLocked = true
+                    remainingSeconds = 0
+                    ParentalControlManager.setCurfewOverride(context, activeChildId, false)
+                    ScreenTimeManager.setLocalLocked(context, activeChildId, true)
+                    ScreenTimeManager.setRemoteLocked(context, activeChildId, true)
+                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, 0)
+                    ScreenTimeManager.saveLastCommand(context, activeChildId, cmdId, cmdTimestamp, true)
+                    val applyTs = System.currentTimeMillis()
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_APPLIED commandId=$cmdId commandType=LOCK_DEVICE childCode=$activeChildId latencyMs=${if (cmdTimestamp > 0) applyTs - cmdTimestamp else -1} timestamp=$applyTs")
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=LOCK_DEVICE childCode=$activeChildId path=hs_commands/$activeChildId/$cmdId timestamp=$applyTs")
+                    android.util.Log.i("HomeSyncLatency", "LOCK_STATE_CHANGED childId=$activeChildId targetChild=$targetChildId locked=true timestamp=$applyTs")
+                    android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_LOCK_STATE locked=true reason=REMOTE_LOCK")
+                    onLockout()
+                } else if (cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK")) {
+                    android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=REMOTE_UNLOCK")
+                    isLocked = false
+                    ParentalControlManager.setCurfewOverride(context, activeChildId, true)
+                    ScreenTimeManager.setLocalLocked(context, activeChildId, false)
+                    ScreenTimeManager.setRemoteLocked(context, activeChildId, false)
+                    val actualUsed = ScreenTimeManager.getUsedSeconds(context, activeChildId)
+                    usedSecondsToday = actualUsed
+                    val currentTot = ScreenTimeManager.getTotalAllowance(context, activeChildId)
+                    val effTot = if (currentTot > 0) currentTot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
+                    val finalTot = if (effTot <= actualUsed) (actualUsed + 1800) else effTot
+                    val finalRem = (finalTot - actualUsed).coerceAtLeast(0)
+                    totalAllowance = finalTot
+                    remainingSeconds = finalRem
+                    ScreenTimeManager.saveTotalAllowance(context, activeChildId, finalTot)
+                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, finalRem)
+                    ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
+                    ScreenTimeManager.saveLastCommand(context, activeChildId, cmdId, cmdTimestamp, false)
+                    val applyTs = System.currentTimeMillis()
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_APPLIED commandId=$cmdId commandType=UNLOCK_DEVICE childCode=$activeChildId latencyMs=${if (cmdTimestamp > 0) applyTs - cmdTimestamp else -1} timestamp=$applyTs")
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=UNLOCK_DEVICE childCode=$activeChildId timestamp=$applyTs")
+
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        if (ScreenTimeManager.hasUsageStatsPermission(context)) {
+                            val bgUsed = ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, activeChildId).coerceAtLeast(0)
+                            if (bgUsed != actualUsed) {
+                                val bgRem = (finalTot - bgUsed).coerceAtLeast(0)
+                                ScreenTimeManager.saveUsedSeconds(context, activeChildId, bgUsed)
+                                ScreenTimeManager.saveRemainingSeconds(context, activeChildId, bgRem)
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    usedSecondsToday = bgUsed
+                                    remainingSeconds = bgRem
+                                }
+                            }
+                        }
+                    }
+                } else if (cmdId.startsWith("GRANT_") || commandType == "EXTRA_TIME" || commandType == "GRANT_EXTRA_TIME") {
+                    val currentStoredTot = ScreenTimeManager.getTotalAllowance(context, activeChildId)
+                    val extraSec = cmdId.split("_").mapNotNull { it.toIntOrNull() }.firstOrNull { it in 60..86400 } ?: 1800
+                    android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=GRANT extraSeconds=$extraSec")
+                    isLocked = false
+                    ParentalControlManager.setCurfewOverride(context, activeChildId, true)
+                    ScreenTimeManager.setLocalLocked(context, activeChildId, false)
+                    val actualUsed = ScreenTimeManager.getUsedSeconds(context, activeChildId)
+                    usedSecondsToday = actualUsed
+                    val baseTot = if (currentStoredTot > 0) currentStoredTot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
+                    val safeTot = if (baseTot <= actualUsed) (actualUsed + extraSec) else (baseTot + extraSec)
+                    val safeRem = (safeTot - actualUsed).coerceAtLeast(0)
+                    totalAllowance = safeTot
+                    remainingSeconds = safeRem
+                    ScreenTimeManager.saveTotalAllowance(context, activeChildId, safeTot)
+                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, safeRem)
+                    ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=GRANT_EXTRA_TIME childCode=$activeChildId timestamp=${System.currentTimeMillis()}")
+
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        if (ScreenTimeManager.hasUsageStatsPermission(context)) {
+                            val bgUsed = ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, activeChildId).coerceAtLeast(0)
+                            if (bgUsed != actualUsed) {
+                                val bgRem = (safeTot - bgUsed).coerceAtLeast(0)
+                                ScreenTimeManager.saveUsedSeconds(context, activeChildId, bgUsed)
+                                ScreenTimeManager.saveRemainingSeconds(context, activeChildId, bgRem)
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    usedSecondsToday = bgUsed
+                                    remainingSeconds = bgRem
+                                }
+                            }
+                        }
+                    }
+                } else if (cmdId.startsWith("RESET") || commandType.startsWith("RESET")) {
+                    android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=RESET_COMMAND")
+                    isLocked = false
+                    ParentalControlManager.setCurfewOverride(context, activeChildId, true)
+                    ScreenTimeManager.setLocalLocked(context, activeChildId, false)
+                    ScreenTimeManager.setRemoteLocked(context, activeChildId, false)
+                    val resetAllowance = ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
+                    totalAllowance = resetAllowance
+                    remainingSeconds = resetAllowance
+                    usedSecondsToday = 0
+                    ScreenTimeManager.saveTotalAllowance(context, activeChildId, resetAllowance)
+                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, resetAllowance)
+                    ScreenTimeManager.saveUsedSeconds(context, activeChildId, 0)
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=REMOTE_RESET childCode=$activeChildId timestamp=${System.currentTimeMillis()}")
+
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        ScreenTimeManager.recordResetBaseForChild(context, activeChildId, if (cmdTimestamp > 0) cmdTimestamp else System.currentTimeMillis())
+                        ScreenTimeManager.updateUsageFromChild(context, activeChildId, 0)
+                        try {
+                            FirebaseRealtimeSyncManager.getRtdb()
+                                ?.getReference("hs_commands")
+                                ?.child(activeChildId)
+                                ?.child(cmdId)
+                                ?.removeValue()
+                        } catch (e: Exception) {
+                            android.util.Log.w("HomeSyncLatency", "Failed to remove command $cmdId from hs_commands", e)
+                        }
+                    }
+                } else if (cmdId.startsWith("SET_LIMIT") || commandType == "SET_DAILY_LIMIT") {
+                    val allowanceFromCmd = cmdId.split("_").mapNotNull { it.toIntOrNull() }.firstOrNull { it in 60..86400 }
+                    val newAllowance = allowanceFromCmd ?: ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
+                    android.util.Log.i("ChildHomeScreen", "SCREEN_TIME_SET_DAILY_LIMIT childCode=$activeChildId newAllowance=$newAllowance cmdAllowance=$allowanceFromCmd")
+                    val actualUsed = ScreenTimeManager.getUsedSeconds(context, activeChildId)
+                    usedSecondsToday = actualUsed
+                    val newRem = (newAllowance - actualUsed).coerceAtLeast(0)
+                    totalAllowance = newAllowance
+                    remainingSeconds = newRem
+                    val shouldLock = (newRem <= 0)
+                    isLocked = shouldLock
+                    ScreenTimeManager.saveTotalAllowance(context, activeChildId, newAllowance)
+                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, newRem)
+                    ScreenTimeManager.saveUsedSeconds(context, activeChildId, actualUsed)
+                    ScreenTimeManager.setLocalLocked(context, activeChildId, shouldLock)
+                    android.util.Log.i("HomeSyncLatency", "COMMAND_STATE_APPLIED commandId=$cmdId commandType=SET_DAILY_LIMIT childCode=$activeChildId timestamp=${System.currentTimeMillis()}")
+                    if (shouldLock) {
+                        onLockout()
+                    } else {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            if (ScreenTimeManager.hasUsageStatsPermission(context)) {
+                                val bgUsed = ScreenTimeManager.getRealDeviceUsageTodaySeconds(context, activeChildId).coerceAtLeast(0)
+                                if (bgUsed != actualUsed) {
+                                    val bgRem = (newAllowance - bgUsed).coerceAtLeast(0)
+                                    val bgLock = (bgRem <= 0)
+                                    ScreenTimeManager.saveUsedSeconds(context, activeChildId, bgUsed)
+                                    ScreenTimeManager.saveRemainingSeconds(context, activeChildId, bgRem)
+                                    ScreenTimeManager.setLocalLocked(context, activeChildId, bgLock)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        usedSecondsToday = bgUsed
+                                        remainingSeconds = bgRem
+                                        isLocked = bgLock
+                                        if (bgLock) onLockout()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         onDispose {
             cancelRtdb?.invoke()
+            cancelCommands?.invoke()
         }
     }
 
@@ -1069,47 +1061,47 @@ fun ChildHomeScreen(
             }
         }
 
-            cancelChild = FirebaseRealtimeSyncManager.listenChildProfile(context, targetCode) { profileData ->
-                if (profileData.avatarBase64.isNotBlank()) {
-                    profileRefreshTrigger += 1
-                }
+        cancelChild = FirebaseRealtimeSyncManager.listenChildProfile(context, targetCode) { profileData ->
+            if (profileData.avatarBase64.isNotBlank()) {
+                profileRefreshTrigger += 1
             }
+        }
 
-            cancelGuardian = FirebaseRealtimeSyncManager.listenGuardianProfile(context, targetCode) { guardianData ->
-                val gName = guardianData.guardianName.trim()
-                val isSarah = com.homesync.app.util.AuthManager.isSarahName(gName)
-                val isValid = gName.isNotBlank() && gName != "User" && gName != "Child" && !isSarah
+        cancelGuardian = FirebaseRealtimeSyncManager.listenGuardianProfile(context, targetCode) { guardianData ->
+            val gName = guardianData.guardianName.trim()
+            val isSarah = com.homesync.app.util.AuthManager.isSarahName(gName)
+            val isValid = gName.isNotBlank() && gName != "User" && gName != "Child" && !isSarah
 
-                if (isValid && guardianData.isConnected) {
-                    com.homesync.app.util.AuthManager.saveGuardianName(context, gName)
-                    activeGuardianName = gName
-                    isGuardianConnected = true
-                    profileRefreshTrigger += 1
-                } else if (isValid) {
-                    com.homesync.app.util.AuthManager.saveGuardianName(context, gName)
-                    activeGuardianName = gName
-                    isGuardianConnected = false
-                } else {
-                    isGuardianConnected = false
-                }
+            if (isValid && guardianData.isConnected) {
+                com.homesync.app.util.AuthManager.saveGuardianName(context, gName)
+                activeGuardianName = gName
+                isGuardianConnected = true
+                profileRefreshTrigger += 1
+            } else if (isValid) {
+                com.homesync.app.util.AuthManager.saveGuardianName(context, gName)
+                activeGuardianName = gName
+                isGuardianConnected = false
+            } else {
+                isGuardianConnected = false
             }
+        }
 
-            childProfileReg = FirebaseSyncManager.getDb()?.collection("hs_child_profiles")?.document(targetCode)
-                ?.addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null && snapshot.exists()) {
-                        val gName = snapshot.getString("guardianName")?.trim() ?: ""
-                        val isPaired = snapshot.getBoolean("isPaired") ?: false
-                        val isGConnected = snapshot.getBoolean("guardianConnected") ?: isPaired
-                        if (isPaired && gName.isNotBlank() && !com.homesync.app.util.AuthManager.isSarahName(gName)) {
-                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                activeGuardianName = gName
-                                isGuardianConnected = isGConnected
-                                com.homesync.app.util.AuthManager.saveGuardianName(context, gName)
-                                profileRefreshTrigger += 1
-                            }
+        childProfileReg = FirebaseSyncManager.getDb()?.collection("hs_child_profiles")?.document(targetCode)
+            ?.addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    val gName = snapshot.getString("guardianName")?.trim() ?: ""
+                    val isPaired = snapshot.getBoolean("isPaired") ?: false
+                    val isGConnected = snapshot.getBoolean("guardianConnected") ?: isPaired
+                    if (isPaired && gName.isNotBlank() && !com.homesync.app.util.AuthManager.isSarahName(gName)) {
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            activeGuardianName = gName
+                            isGuardianConnected = isGConnected
+                            com.homesync.app.util.AuthManager.saveGuardianName(context, gName)
+                            profileRefreshTrigger += 1
                         }
                     }
                 }
+            }
 
         onDispose {
             questsReg?.remove()
@@ -1728,6 +1720,35 @@ fun ChildHomeScreen(
                                     }
                                 }
 
+                                if (!hasUsageAccessPermission) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = WarningAmberBg),
+                                        shape = RoundedCornerShape(18.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFFDE68A))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Warning, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(24.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("Usage Access Permission Needed", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                                Text("Required for live screen time tracking on this device.", fontSize = 11.sp, color = TextSecondary)
+                                            }
+                                            Button(
+                                                onClick = { ScreenTimeManager.openUsageAccessSettings(context) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Text("Grant", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // FAMILY MEMBERS SECTION (View for Child, showing Guardian & Siblings connected via Pairing Code)
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(
@@ -1763,7 +1784,7 @@ fun ChildHomeScreen(
                                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                                         verticalAlignment = Alignment.Top
                                     ) {
-                                         // 1. Guardian Card (Shows real name when paired, or 'Not Paired' when waiting)
+                                        // 1. Guardian Card (Shows real name when paired, or 'Not Paired' when waiting)
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             modifier = Modifier
@@ -1862,8 +1883,8 @@ fun ChildHomeScreen(
                                             if (remoteChildren.isNotEmpty()) {
                                                 remoteChildren.map { m ->
                                                     val isSelf = (m.userId.isNotBlank() && m.userId == currentUserId) ||
-                                                                 (activeChildId.isNotBlank() && m.childCode.equals(activeChildId, ignoreCase = true)) ||
-                                                                 (activeChildName.isNotBlank() && m.name.equals(activeChildName, ignoreCase = true))
+                                                            (activeChildId.isNotBlank() && m.childCode.equals(activeChildId, ignoreCase = true)) ||
+                                                            (activeChildName.isNotBlank() && m.name.equals(activeChildName, ignoreCase = true))
                                                     val dispName = if (isSelf && activeChildName.isNotBlank() && !activeChildName.equals("Child", ignoreCase = true)) activeChildName else m.name.ifBlank { "Child" }
                                                     val code = m.childCode.ifBlank { if (isSelf) activeChildId else m.userId }
                                                     Triple(ChildIdManager.formatChildName(dispName), code, isSelf)
@@ -1986,11 +2007,10 @@ fun ChildHomeScreen(
 
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     // Screen Time
-                                    ChildProgressCard(
-                                        title = "Screen Time",
-                                        value = "${ScreenTimeManager.formatHoursAndMinutes(usedSecondsToday)} Used",
-                                        subtitle = "${ScreenTimeManager.formatHoursAndMinutes(remainingSeconds)} left of ${ScreenTimeManager.formatHoursAndMinutes(totalAllowance)}",
-                                        progressText = "${((totalAllowance - remainingSeconds) * 100 / totalAllowance.coerceAtLeast(1)).coerceIn(0, 100)}%",
+                                    ChildScreenTimeProgressCard(
+                                        usedSeconds = { usedSecondsToday },
+                                        remainingSeconds = { remainingSeconds },
+                                        totalAllowance = { totalAllowance },
                                         modifier = Modifier.weight(1f)
                                     )
                                     // My Tasks
@@ -2860,6 +2880,29 @@ fun ChildHomeScreen(
 }
 
 // Child Progress Card
+/**
+ * Screen-time progress card. Values are passed as lambdas so they are read
+ * here, not in ChildHomeScreen. Only this card recomposes on each 2-second tick.
+ */
+@Composable
+private fun ChildScreenTimeProgressCard(
+    usedSeconds: () -> Int,
+    remainingSeconds: () -> Int,
+    totalAllowance: () -> Int,
+    modifier: Modifier = Modifier
+) {
+    val used = usedSeconds()
+    val remaining = remainingSeconds()
+    val total = totalAllowance()
+    ChildProgressCard(
+        title = "Screen Time",
+        value = "${ScreenTimeManager.formatHoursAndMinutes(used)} Used",
+        subtitle = "${ScreenTimeManager.formatHoursAndMinutes(remaining)} left of ${ScreenTimeManager.formatHoursAndMinutes(total)}",
+        progressText = "${((total - remaining) * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)}%",
+        modifier = modifier
+    )
+}
+
 @Composable
 private fun ChildProgressCard(
     title: String,
@@ -3751,7 +3794,7 @@ fun ChildProfileView(
     // Profile Picture state (Camera & Gallery upload support)
     var localChildProfileBitmap by remember(profileBitmap, canonicalChildUid) {
         mutableStateOf(
-            profileBitmap 
+            profileBitmap
                 ?: com.homesync.app.util.ProfileImageManager.getProfileImage(context, key = "user_$canonicalChildUid")
         )
     }
@@ -3946,7 +3989,7 @@ fun ChildProfileView(
                         }
 
                         Button(
-                            onClick = { 
+                            onClick = {
                                 val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                 val clip = android.content.ClipData.newPlainText("Family ID", activeFamilyId)
                                 clipboard.setPrimaryClip(clip)

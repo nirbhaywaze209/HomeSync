@@ -96,47 +96,18 @@ fun LockoutScreen(
                     }
                 }
 
-                if (cmdId.isNotBlank() && cmdId != "NONE" && cmdId == lastProcessedCommandId) {
-                    return@listenScreenTimeWithCommandDetails
-                }
-                if (cmdId.isNotBlank() && cmdId != "NONE") {
-                    lastProcessedCommandId = cmdId
-                }
-
-                if (cmdId.startsWith("RESET") || commandType.startsWith("RESET")) {
-                    android.util.Log.i("LockoutScreen", "SCREEN_TIME_COMMAND_APPLIED childCode=$cleanId commandId=$cmdId action=RESET")
-                    android.util.Log.i("LockoutScreen", "SCREEN_TIME_UNLOCK_STATE unlocked=true reason=RESET_COMMAND")
-                    ScreenTimeManager.recordResetBaseForChild(context, cleanId, if (cmdTimestamp > 0) cmdTimestamp else System.currentTimeMillis())
-                    ScreenTimeManager.saveLastCommand(context, cleanId, cmdId, cmdTimestamp, false)
-                    com.homesync.app.util.ParentalControlManager.setCurfewOverride(context, cleanId, true)
-                    ScreenTimeManager.setLocalLocked(context, cleanId, false)
-                    ScreenTimeManager.setRemoteLocked(context, cleanId, false)
-                    val resetAllowance = if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
-                    remainingSeconds = resetAllowance
-                    isLocked = false
-                    ScreenTimeManager.saveTotalAllowance(context, cleanId, resetAllowance)
-                    ScreenTimeManager.saveRemainingSeconds(context, cleanId, resetAllowance)
-                    ScreenTimeManager.saveUsedSeconds(context, cleanId, 0)
-                    ScreenTimeManager.updateUsageFromChild(context, cleanId, 0)
-                    val applyTs = System.currentTimeMillis()
-                    android.util.Log.i("HomeSyncLatency", "COMMAND_APPLIED commandId=$cmdId commandType=REMOTE_RESET childCode=$cleanId latencyMs=${if (cmdTimestamp > 0) applyTs - cmdTimestamp else -1} timestamp=$applyTs")
-
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        onUnlock()
-                    }
-                    return@listenScreenTimeWithCommandDetails
-                }
-
                 val isExplicitUnlock = cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK") ||
                         cmdId.startsWith("GRANT_") || commandType.contains("EXTRA_TIME") || commandType.contains("GRANT") ||
                         cmdId.startsWith("SET_LIMIT") || commandType.contains("SET_DAILY_LIMIT")
 
-                if (isExplicitUnlock || !locked) {
+                // Only an unlocked snapshot can unlock. A locked snapshot never unlocks,
+                // even if it carries a leftover UNLOCK command id.
+                if (!locked) {
                     val procTs = System.currentTimeMillis()
                     val effCmdType = if (cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK")) "UNLOCK_DEVICE"
-                        else if (cmdId.startsWith("GRANT_") || commandType.contains("EXTRA_TIME") || commandType.contains("GRANT")) "GRANT_EXTRA_TIME"
-                        else if (cmdId.startsWith("SET_LIMIT") || commandType.contains("SET_DAILY_LIMIT")) "SET_DAILY_LIMIT"
-                        else "UNLOCK_DEVICE"
+                    else if (cmdId.startsWith("GRANT_") || commandType.contains("EXTRA_TIME") || commandType.contains("GRANT")) "GRANT_EXTRA_TIME"
+                    else if (cmdId.startsWith("SET_LIMIT") || commandType.contains("SET_DAILY_LIMIT")) "SET_DAILY_LIMIT"
+                    else "UNLOCK_DEVICE"
 
                     android.util.Log.i("HomeSyncLatency", "COMMAND_PROCESSING_STARTED commandId=$cmdId commandType=$effCmdType childCode=$cleanId path=hs_screentime/$cleanId timestamp=$procTs")
                     val actualUsed = ScreenTimeManager.getUsedSeconds(context, cleanId)
@@ -285,7 +256,7 @@ fun LockoutScreen(
                         center = Offset(x * w, y * h)
                     )
                 }
-                
+
                 // A few larger glow circles
                 drawCircle(
                     color = NightStarWhite.copy(alpha = 0.05f),
@@ -309,12 +280,12 @@ fun LockoutScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 Text(
                     text = "🌙",
                     fontSize = 56.sp
                 )
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Row(
@@ -345,7 +316,7 @@ fun LockoutScreen(
                         )
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 val rules = remember(childId) { com.homesync.app.util.ParentalControlManager.getRules(context, childId) }
@@ -357,16 +328,16 @@ fun LockoutScreen(
                     remainingSeconds <= 0 -> "Your daily screen time allowance has run out."
                     else -> "Your device has been locked remotely by your guardian."
                 }
-                
+
                 Text(
                     text = lockoutReason,
                     fontSize = 15.sp,
                     color = NightTextMuted,
                     textAlign = TextAlign.Center
                 )
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 Surface(
                     color = NightSkyMid.copy(alpha = 0.6f),
                     shape = RoundedCornerShape(12.dp)
@@ -397,9 +368,9 @@ fun LockoutScreen(
                         }
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.heightIn(min = 20.dp).weight(1f, fill = false))
-                
+
                 if (!isLocked && remainingSeconds > 0) {
                     Button(
                         onClick = onUnlock,
@@ -525,7 +496,7 @@ fun LockoutScreen(
                         }
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }

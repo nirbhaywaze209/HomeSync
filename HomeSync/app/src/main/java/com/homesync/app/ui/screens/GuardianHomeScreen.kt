@@ -943,7 +943,7 @@ fun GuardianHomeScreen(
                                         }
                                     )
                                     Column(modifier = Modifier.weight(1f, fill = false)) {
-                                        Text("Good evening", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                                        Text(activeGuardianName, fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1127,28 +1127,28 @@ fun GuardianHomeScreen(
                                                 modifier = Modifier
                                                     .width(76.dp)
                                                     .clickable {
-                                                    activeChildCode = childCode
-                                                    selectedChildUid = childUid
-                                                    childQuestsList = if (activeFamilyId.isNotBlank()) {
-                                                        tasksByChild[childUid] ?: tasksByChild[childCode] ?: emptyList()
-                                                    } else {
-                                                        ChildQuestManager.getQuests(context, childCode)
+                                                        activeChildCode = childCode
+                                                        selectedChildUid = childUid
+                                                        childQuestsList = if (activeFamilyId.isNotBlank()) {
+                                                            tasksByChild[childUid] ?: tasksByChild[childCode] ?: emptyList()
+                                                        } else {
+                                                            ChildQuestManager.getQuests(context, childCode)
+                                                        }
+                                                        val cState = screenTimeByChild[childCode]
+                                                        if (cState != null) {
+                                                            remainingSeconds = cState.remainingSeconds
+                                                            isLocked = cState.isLocked
+                                                            usedSeconds = cState.usedSeconds
+                                                            totalAllowanceSeconds = cState.totalAllowanceSeconds
+                                                        } else {
+                                                            remainingSeconds = ScreenTimeManager.getRemainingSeconds(context, childCode)
+                                                            isLocked = ScreenTimeManager.isDeviceLocked(context, childCode)
+                                                            usedSeconds = ScreenTimeManager.getUsedSeconds(context, childCode)
+                                                            totalAllowanceSeconds = ScreenTimeManager.getTotalAllowance(context, childCode)
+                                                        }
+                                                        activeChildCode = childCode
+                                                        selectedChildForDetail = cleanName
                                                     }
-                                                    val cState = screenTimeByChild[childCode]
-                                                    if (cState != null) {
-                                                        remainingSeconds = cState.remainingSeconds
-                                                        isLocked = cState.isLocked
-                                                        usedSeconds = cState.usedSeconds
-                                                        totalAllowanceSeconds = cState.totalAllowanceSeconds
-                                                    } else {
-                                                        remainingSeconds = ScreenTimeManager.getRemainingSeconds(context, childCode)
-                                                        isLocked = ScreenTimeManager.isDeviceLocked(context, childCode)
-                                                        usedSeconds = ScreenTimeManager.getUsedSeconds(context, childCode)
-                                                        totalAllowanceSeconds = ScreenTimeManager.getTotalAllowance(context, childCode)
-                                                    }
-                                                    activeChildCode = childCode
-                                                    selectedChildForDetail = cleanName
-                                                }
                                             ) {
                                                 val childPhotoBitmap = remember(profileRefreshTrigger, childCode, childUid) {
                                                     ProfileImageManager.getProfileImageForUser(context, childUid)
@@ -1739,8 +1739,8 @@ fun GuardianHomeScreen(
                                                         android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=$cmdType childCode=$childCode path=hs_screentime/$childCode timestamp=$clickTs")
                                                         ScreenTimeManager.setDeviceLocked(context, childCode, newLock, cmdId)
                                                         val newRem = if (!newLock) {
-                                                             val updated = ScreenTimeManager.getRemainingSeconds(context, childCode)
-                                                             if (updated > 0) updated else 1800
+                                                            val updated = ScreenTimeManager.getRemainingSeconds(context, childCode)
+                                                            if (updated > 0) updated else 1800
                                                         } else 0
                                                         val updatedState = childState.copy(isLocked = newLock, remainingSeconds = newRem)
                                                         screenTimeByChild = screenTimeByChild + (childCode to updatedState)
@@ -1824,7 +1824,7 @@ fun GuardianHomeScreen(
                                                 onClick = {
                                                     val clickTs = System.currentTimeMillis()
                                                     val cmdId = "REMOTE_RESET_${childCode}_$clickTs"
-                                                    android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=REMOTE_RESET childCode=$childCode path=hs_screentime/$childCode timestamp=$clickTs")
+                                                    android.util.Log.i("HomeSyncLatency", "COMMAND_UI_CLICK commandId=$cmdId commandType=REMOTE_RESET childCode=$childCode path=hs_commands/$childCode/$cmdId timestamp=$clickTs")
                                                     ScreenTimeManager.resetToSixHoursAsCommand(context, childCode, cmdId)
                                                     val resetAllowance = ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
                                                     val updatedState = childState.copy(
@@ -2489,7 +2489,7 @@ fun GuardianHomeScreen(
                                     modifier = Modifier.padding(12.dp),
                                     verticalAlignment = Alignment.Top,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                 ) {
+                                ) {
                                     val iconVector = when (notif.type) {
                                         NotificationType.TASK_PHOTO_SUBMITTED -> Icons.Filled.PhotoCamera
                                         NotificationType.CHILD_SAFE_CHECKIN -> Icons.Filled.CheckCircle
@@ -3035,7 +3035,7 @@ fun GuardianHomeScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Enter the child's name and the unique device code (HS-XXXXXX).", color = TextSecondary, fontSize = 13.sp)
-                    
+
                     OutlinedTextField(
                         value = inputChildName,
                         onValueChange = { inputChildName = it },
@@ -3496,8 +3496,8 @@ fun GuardianMapTabView(
     // Resolve the active target child
     val currentChild = connectedChildren.find {
         (activeChildCode.isNotBlank() && it.childCode.equals(activeChildCode, ignoreCase = true)) ||
-        (selectedChildUid.isNotBlank() && it.childUid.equals(selectedChildUid, ignoreCase = true)) ||
-        (activeChildCode.isNotBlank() && it.childUid.equals(activeChildCode, ignoreCase = true))
+                (selectedChildUid.isNotBlank() && it.childUid.equals(selectedChildUid, ignoreCase = true)) ||
+                (activeChildCode.isNotBlank() && it.childUid.equals(activeChildCode, ignoreCase = true))
     } ?: connectedChildren.firstOrNull()
 
     val targetChildCode = currentChild?.childCode?.takeIf { it.isNotBlank() }
@@ -3973,9 +3973,9 @@ fun GuardianTasksTabView(
                 Text("Assign tasks & verify photo proof submissions", fontSize = 11.sp, color = TextSecondary)
             }
             Button(
-                onClick = { 
+                onClick = {
                     selectedTargetChildUid = if (selectedFilterChildUid != "ALL") selectedFilterChildUid else (if (approvedChildren.isNotEmpty()) approvedChildren.first().childUid else (if (selectedChildUid.isNotBlank()) selectedChildUid else activeChildCode))
-                    showAddTaskModal = true 
+                    showAddTaskModal = true
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                 shape = RoundedCornerShape(12.dp),
@@ -4092,7 +4092,7 @@ fun GuardianTasksTabView(
                                 Surface(shape = RoundedCornerShape(50), color = Color(quest.status.badgeColorHex).copy(alpha = 0.15f)) {
                                     Text(quest.status.label, color = Color(quest.status.badgeColorHex), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                                 }
-                                 IconButton(
+                                IconButton(
                                     onClick = {
                                         if (activeFamilyId.isNotBlank()) {
                                             val deleteUid = quest.childUserId.ifBlank { taskItem.childUid }

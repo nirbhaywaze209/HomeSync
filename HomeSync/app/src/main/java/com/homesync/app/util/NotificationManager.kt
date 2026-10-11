@@ -432,6 +432,8 @@ object NotificationManager {
         if (questId.isBlank()) return
         val current = getNotifications(context)
         val toDelete = current.filter { it.actionData == questId || it.id == questId }
+        // Nothing to remove: no write, no logs. Stops the repeated CLEARED/BADGE spam.
+        if (toDelete.isEmpty()) return
         for (n in toDelete) {
             dismissAlert(context, n.id)
             FirebaseSyncManager.deleteNotificationInCloud(n.id)

@@ -39,12 +39,12 @@ object ScreenTimeManager {
         val cal = Calendar.getInstance()
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val minute = cal.get(Calendar.MINUTE)
-        
+
         // If time is before 5:30 AM, we consider it part of the previous day
         if (hour < 5 || (hour == 5 && minute < 30)) {
             cal.add(Calendar.DAY_OF_MONTH, -1)
         }
-        
+
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         return sdf.format(cal.time)
     }
@@ -93,8 +93,13 @@ object ScreenTimeManager {
             .putLong(getLastCmdTsKey(cleanId), cmdTimestamp)
             .putBoolean(getRemoteLockedKey(cleanId), remoteLock)
             .putBoolean(getLockedKey(cleanId), remoteLock)
+            .putLong(getLockChangedKey(cleanId), System.currentTimeMillis())
             .apply()
     }
+
+    // Phone-side lock changes win over cloud copies for this long, so an older cloud value cannot flip the lock back.
+    private const val LOCK_HOLD_MS = 60_000L
+    private fun getLockChangedKey(cleanId: String) = "lock_changed_at_$cleanId"
 
     fun setLocalLocked(context: Context, childId: String, locked: Boolean) {
         val cleanId = cleanChildId(childId)
@@ -102,6 +107,7 @@ object ScreenTimeManager {
         getPrefs(context).edit()
             .putBoolean(getLockedKey(cleanId), locked)
             .putBoolean(getRemoteLockedKey(cleanId), locked)
+            .putLong(getLockChangedKey(cleanId), System.currentTimeMillis())
             .apply()
     }
 
@@ -111,8 +117,12 @@ object ScreenTimeManager {
         getPrefs(context).edit()
             .putBoolean(getRemoteLockedKey(cleanId), locked)
             .putBoolean(getLockedKey(cleanId), locked)
+            .putLong(getLockChangedKey(cleanId), System.currentTimeMillis())
             .apply()
     }
+
+    private var lastLoggedPermissionState: Boolean? = null
+    private var lastLoggedPermissionTimestamp = 0L
 
     /**
      * Checks if Usage Access permission is granted in Android Settings.
@@ -120,7 +130,10 @@ object ScreenTimeManager {
     fun hasUsageStatsPermission(context: Context): Boolean {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager
         if (appOps == null) {
-            Log.i(TAG, "SCREEN_TIME_USAGE_ACCESS permission state=DENIED")
+            if (lastLoggedPermissionState != false) {
+                lastLoggedPermissionState = false
+                Log.w(TAG, "SCREEN_TIME_USAGE_ACCESS AppOpsManager is null - permission state=DENIED")
+            }
             return false
         }
         val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -130,7 +143,12 @@ object ScreenTimeManager {
             appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
         }
         val granted = (mode == AppOpsManager.MODE_ALLOWED)
-        Log.i(TAG, "SCREEN_TIME_USAGE_ACCESS permission state=${if (granted) "GRANTED" else "DENIED"}")
+        val now = System.currentTimeMillis()
+        if (lastLoggedPermissionState != granted || (now - lastLoggedPermissionTimestamp > 60_000L)) {
+            lastLoggedPermissionState = granted
+            lastLoggedPermissionTimestamp = now
+            Log.i(TAG, "SCREEN_TIME_USAGE_ACCESS permission state=${if (granted) "GRANTED" else "DENIED"}")
+        }
         return granted
     }
 
@@ -174,7 +192,7 @@ object ScreenTimeManager {
         if (cleanId.isBlank()) return
         val today = getCurrentScreenTimeDate()
         val prefs = getPrefs(context)
-        
+
         var rawUsage = getRawDeviceUsageTodaySeconds(context)
         val oldBase = getResetBaseUsage(context, cleanId, today)
         val interactive = prefs.getInt(getDailyInteractiveKey(cleanId, today), 0)
@@ -218,7 +236,7 @@ object ScreenTimeManager {
         val lastDate = prefs.getString(getDateKey(cleanId), "")
         if (lastDate != today) {
             Log.i(TAG, "SCREEN_TIME_DAILY_RESET_APPLIED childCode=$cleanId date=$today previousDate=$lastDate")
-            
+
             var rawUsage = getRawDeviceUsageTodaySeconds(context)
             if (rawUsage < 0) {
                 // For daily reset, if we can't get raw usage, we just use 0 because it's a new day anyway!
@@ -229,7 +247,7 @@ object ScreenTimeManager {
             } else {
                 rawUsage = rawUsage.coerceAtLeast(0)
             }
-            
+
             val now = System.currentTimeMillis()
             val rules = ParentalControlManager.getRules(context, cleanId)
             val configuredDailyAllowance = if (rules.maxDailyAllowanceMinutes > 0) {
@@ -317,7 +335,7 @@ object ScreenTimeManager {
         val cal = Calendar.getInstance()
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val minute = cal.get(Calendar.MINUTE)
-        
+
         // If time is before 5:30 AM, we consider it part of the previous day
         if (hour < 5 || (hour == 5 && minute < 30)) {
             cal.add(Calendar.DAY_OF_MONTH, -1)
@@ -502,21 +520,30 @@ object ScreenTimeManager {
             val commandPayload = mapOf<String, Any>(
                 "childCode" to cleanId,
                 "targetChildId" to cleanId,
-                "commandType" to "GRANT_EXTRA_TIME",
                 "date" to today,
                 "remoteAllowance" to newAllowance,
                 "totalAllowance" to newAllowance,
                 "remainingSeconds" to newRemaining,
                 "remoteLock" to false,
                 "isLocked" to false,
-                "commandId" to cmdId,
-                "commandTimestamp" to now,
                 "curfewOverride" to true,
                 "curfewOverrideTimestamp" to now,
                 "updatedAt" to now,
                 "sourceRole" to "GUARDIAN",
-                "extraSeconds" to seconds
             )
+            // Command goes to hs_commands only: the child runs it once and removes it.
+            rtdb.getReference("hs_commands").child(cleanId).child(cmdId).setValue(
+                mapOf<String, Any>(
+                    "childCode" to cleanId,
+                    "targetChildId" to cleanId,
+                    "commandType" to "GRANT_EXTRA_TIME",
+                    "commandId" to cmdId,
+                    "commandTimestamp" to now,
+                    "date" to today,
+                    "sourceRole" to "GUARDIAN",
+                    "updatedAt" to now
+                )
+            ).addOnFailureListener { err -> Log.e(TAG, "COMMAND_WRITE_FAILED commandId=$cmdId", err) }
             rtdb.getReference("hs_screentime").child(cleanId).updateChildren(commandPayload)
                 .addOnSuccessListener {
                     val finishNow = System.currentTimeMillis()
@@ -595,17 +622,19 @@ object ScreenTimeManager {
             val commandPayload = mutableMapOf<String, Any>(
                 "childCode" to cleanId,
                 "targetChildId" to cleanId,
-                "commandType" to standardCmdType,
                 "date" to today,
                 "remoteLock" to locked,
                 "isLocked" to locked,
-                "commandId" to cmdId,
-                "commandTimestamp" to now,
                 "curfewOverride" to (!locked),
                 "curfewOverrideTimestamp" to now,
                 "updatedAt" to now,
                 "sourceRole" to "GUARDIAN"
             )
+            // Tag this state with the command that produced it. Without this, the child
+            // reads a stale commandId (e.g. an old UNLOCK) and treats a lock as an unlock.
+            commandPayload["commandId"] = cmdId
+            commandPayload["commandType"] = standardCmdType
+            commandPayload["commandTimestamp"] = now
             if (!locked) {
                 commandPayload["remoteAllowance"] = effectiveAllowance
                 commandPayload["totalAllowance"] = effectiveAllowance
@@ -613,6 +642,19 @@ object ScreenTimeManager {
             } else {
                 commandPayload["remainingSeconds"] = 0
             }
+            // Command goes to hs_commands only: the child runs it once and removes it.
+            rtdb.getReference("hs_commands").child(cleanId).child(cmdId).setValue(
+                mapOf<String, Any>(
+                    "childCode" to cleanId,
+                    "targetChildId" to cleanId,
+                    "commandType" to standardCmdType,
+                    "commandId" to cmdId,
+                    "commandTimestamp" to now,
+                    "date" to today,
+                    "sourceRole" to "GUARDIAN",
+                    "updatedAt" to now
+                )
+            ).addOnFailureListener { err -> Log.e(TAG, "COMMAND_WRITE_FAILED commandId=$cmdId", err) }
             rtdb.getReference("hs_screentime").child(cleanId).updateChildren(commandPayload)
                 .addOnSuccessListener {
                     val finishNow = System.currentTimeMillis()
@@ -808,6 +850,26 @@ object ScreenTimeManager {
         val rtdb = FirebaseRealtimeSyncManager.getRtdb()
         if (rtdb != null) {
             try { rtdb.goOnline() } catch (_: Exception) {}
+            // Write the reset STATE to hs_screentime so the guardian screen and the child's
+            // screen-time listener both see 6 hours and zero used. No command fields here.
+            try {
+                rtdb.getReference("hs_screentime").child(cleanId).updateChildren(
+                    mapOf<String, Any>(
+                        "childCode" to cleanId,
+                        "date" to today,
+                        "remainingSeconds" to DEFAULT_ALLOWANCE_SECONDS,
+                        "totalAllowance" to DEFAULT_ALLOWANCE_SECONDS,
+                        "remoteAllowance" to DEFAULT_ALLOWANCE_SECONDS,
+                        "usedSeconds" to 0,
+                        "isLocked" to false,
+                        "remoteLock" to false,
+                        "resetVersion" to now,
+                        "updatedAt" to now
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "SCREEN_TIME_RESET_STATE_WRITE_FAILED childCode=$cleanId", e)
+            }
             val commandPayload = mapOf<String, Any>(
                 "childCode" to cleanId,
                 "targetChildId" to cleanId,
@@ -828,14 +890,14 @@ object ScreenTimeManager {
                 "updatedAt" to now,
                 "sourceRole" to "GUARDIAN"
             )
-            rtdb.getReference("hs_screentime").child(cleanId).updateChildren(commandPayload)
+            rtdb.getReference("hs_commands").child(cleanId).child(cmdId).setValue(commandPayload)
                 .addOnSuccessListener {
                     val finishNow = System.currentTimeMillis()
                     Log.i(TAG, "SCREEN_TIME_RESET_COMMAND_SUCCESS childCode=$cleanId targetChildId=$cleanId commandId=$cmdId")
                     Log.i("HomeSyncLatency", "COMMAND_WRITTEN commandId=$cmdId commandType=REMOTE_RESET childCode=$cleanId latencyMs=${finishNow - now} timestamp=$finishNow")
                 }
                 .addOnFailureListener { e ->
-                    Log.e(TAG, "SCREEN_TIME_RTDB_ERROR code=WRITE_FAILED message=${e.message} path=hs_screentime/$cleanId", e)
+                    Log.e(TAG, "SCREEN_TIME_RTDB_ERROR code=WRITE_FAILED message=${e.message} path=hs_commands/$cleanId/$cmdId", e)
                 }
         }
 
@@ -889,18 +951,28 @@ object ScreenTimeManager {
             val commandPayload = mapOf<String, Any>(
                 "childCode" to cleanId,
                 "targetChildId" to cleanId,
-                "commandType" to "SET_DAILY_LIMIT",
                 "date" to today,
                 "remoteAllowance" to allowanceSeconds,
                 "totalAllowance" to allowanceSeconds,
                 "remainingSeconds" to newRemaining,
                 "remoteLock" to shouldLock,
                 "isLocked" to shouldLock,
-                "commandId" to cmdId,
-                "commandTimestamp" to now,
                 "updatedAt" to now,
                 "sourceRole" to "GUARDIAN"
             )
+            // Command goes to hs_commands only: the child runs it once and removes it.
+            rtdb.getReference("hs_commands").child(cleanId).child(cmdId).setValue(
+                mapOf<String, Any>(
+                    "childCode" to cleanId,
+                    "targetChildId" to cleanId,
+                    "commandType" to "SET_DAILY_LIMIT",
+                    "commandId" to cmdId,
+                    "commandTimestamp" to now,
+                    "date" to today,
+                    "sourceRole" to "GUARDIAN",
+                    "updatedAt" to now
+                )
+            ).addOnFailureListener { err -> Log.e(TAG, "COMMAND_WRITE_FAILED commandId=$cmdId", err) }
             rtdb.getReference("hs_screentime").child(cleanId).updateChildren(commandPayload)
                 .addOnSuccessListener {
                     val finishNow = System.currentTimeMillis()
@@ -949,7 +1021,10 @@ object ScreenTimeManager {
             Log.i(TAG, "SCREEN_TIME_REMOTE_UPDATE_IGNORED_STALE_RESET child=$cleanId updateVersion=$updateResetVersion currentVersion=$currentResetVersion")
             return
         }
-        val rem = if (isLocked) 0 else remainingSeconds
+        val lockChangedAt = prefs.getLong(getLockChangedKey(cleanId), 0L)
+        val holdLocalLock = (System.currentTimeMillis() - lockChangedAt) < LOCK_HOLD_MS
+        val effectiveIsLocked = if (holdLocalLock) prefs.getBoolean(getLockedKey(cleanId), false) else isLocked
+        val rem = if (effectiveIsLocked) 0 else remainingSeconds
         prefs.edit()
             .putString(getDateKey(cleanId), today)
             .putInt(getTotalKey(cleanId), totalAllowance)
@@ -958,8 +1033,8 @@ object ScreenTimeManager {
             .putInt(getDailyRemainingKey(cleanId, today), rem)
             .putInt(getUsedKey(cleanId), usedSeconds)
             .putInt(getDailyUsedKey(cleanId, today), usedSeconds)
-            .putBoolean(getLockedKey(cleanId), isLocked)
-            .putBoolean(getRemoteLockedKey(cleanId), isLocked)
+            .putBoolean(getLockedKey(cleanId), effectiveIsLocked)
+            .putBoolean(getRemoteLockedKey(cleanId), effectiveIsLocked)
             .apply()
     }
 

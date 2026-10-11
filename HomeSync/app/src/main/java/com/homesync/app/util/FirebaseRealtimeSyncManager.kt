@@ -2,16 +2,21 @@ package com.homesync.app.util
 
 import android.content.Context
 import android.util.Log
+import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
+import java.util.Collections
+import java.util.HashSet
 
 object FirebaseRealtimeSyncManager {
     private const val TAG = "FirebaseRealtimeSync"
 
     private const val RTDB_URL = "https://homesync-app-4cee2-default-rtdb.firebaseio.com"
+
+    private val handledCommandIds = Collections.synchronizedSet(HashSet<String>())
 
     private val rtdbInstance: FirebaseDatabase? by lazy {
         try {
@@ -528,8 +533,6 @@ object FirebaseRealtimeSyncManager {
                         val rem = if (effectiveLocked) 0 else (if (isPastDate) remoteAllowance else rawRem)
                         val recvTs = System.currentTimeMillis()
 
-                        android.util.Log.i("HomeSyncLatency", "RTDB_COMMAND_RECEIVED commandId=$cmdId commandType=$commandType childCode=$cleanCode path=$rtdbPath latencyMs=${if (cmdTimestamp > 0) recvTs - cmdTimestamp else -1} timestamp=$recvTs")
-                        android.util.Log.i("HomeSyncLatency", "COMMAND_RECEIVED commandId=$cmdId commandType=$commandType childCode=$cleanCode path=$rtdbPath latencyMs=${if (cmdTimestamp > 0) recvTs - cmdTimestamp else -1} timestamp=$recvTs")
                         android.util.Log.i("HomeSyncScreenTime", "SCREEN_TIME_RTDB_UPDATE childCode=$cleanCode locked=$effectiveLocked rem=$rem used=$used allowance=$remoteAllowance cmdId=$cmdId resetVersion=$resetVersion")
 
                         val stateSnapshot = ScreenTimeStateSnapshot(
@@ -576,6 +579,82 @@ object FirebaseRealtimeSyncManager {
             listenersList.remove(onUpdate)
             val remTs = System.currentTimeMillis()
             android.util.Log.i("HomeSyncLatency", "LISTENER_REMOVED commandId=NONE commandType=NONE childCode=$cleanCode path=$rtdbPath timestamp=$remTs")
+        }
+    }
+
+    /**
+     * Listens exclusively to commands for a child on the dedicated path hs_commands/{childCode}.
+     * Reacts only to child_added or new unhandled values and guards against duplicates.
+     */
+    fun listenChildCommands(
+        childCode: String,
+        onCommand: (commandId: String, commandType: String, targetChildId: String, commandTimestamp: Long, snapshot: DataSnapshot) -> Unit
+    ): (() -> Unit)? {
+        val cleanCode = childCode.trim().uppercase()
+        if (cleanCode.isBlank()) return null
+        val rtdb = getRtdb() ?: return null
+        val commandsRef = rtdb.getReference("hs_commands").child(cleanCode)
+
+        val listener = object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
+                handleSnapshot(snapshot)
+            }
+
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {
+                handleSnapshot(snapshot)
+            }
+
+            private fun handleSnapshot(snapshot: DataSnapshot) {
+                try {
+                    if (!snapshot.exists()) return
+                    val commandId = snapshot.child("commandId").getValue(String::class.java)
+                        ?: snapshot.key
+                        ?: return
+                    if (commandId.isBlank() || commandId == "NONE") return
+
+                    // Ignore and clean up commands from an earlier session so they never replay
+                    val commandTs = getLongSafe(snapshot, "commandTimestamp", 0L)
+                    val staleCommandMs = 15L * 60L * 1000L
+                    if (commandTs > 0 && (System.currentTimeMillis() - commandTs) > staleCommandMs) {
+                        Log.i("HomeSyncLatency", "COMMAND_IGNORED_STALE commandId=$commandId ageMs=${System.currentTimeMillis() - commandTs}")
+                        try { snapshot.ref.removeValue() } catch (_: Exception) {}
+                        return
+                    }
+
+                    if (!handledCommandIds.add(commandId)) {
+                        Log.i("HomeSyncLatency", "COMMAND_IGNORED_DUPLICATE commandId=$commandId")
+                        return
+                    }
+
+                    val commandType = snapshot.child("commandType").getValue(String::class.java) ?: "RESET_SCREEN_TIME"
+                    val targetChildId = snapshot.child("targetChildId").getValue(String::class.java) ?: cleanCode
+                    val commandTimestamp = getLongSafe(snapshot, "commandTimestamp", 0L)
+                    val recvTs = System.currentTimeMillis()
+                    val path = "hs_commands/$cleanCode/$commandId"
+
+                    Log.i("HomeSyncLatency", "RTDB_COMMAND_RECEIVED commandId=$commandId commandType=$commandType childCode=$cleanCode path=$path latencyMs=${if (commandTimestamp > 0) recvTs - commandTimestamp else -1} timestamp=$recvTs")
+                    Log.i("HomeSyncLatency", "COMMAND_RECEIVED commandId=$commandId commandType=$commandType childCode=$cleanCode path=$path latencyMs=${if (commandTimestamp > 0) recvTs - commandTimestamp else -1} timestamp=$recvTs")
+
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        onCommand(commandId, commandType, targetChildId, commandTimestamp, snapshot)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling command in listenChildCommands for $cleanCode", e)
+                }
+            }
+
+            override fun onChildRemoved(snapshot: DataSnapshot) {}
+            override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onCancelled(error: DatabaseError) {
+                Log.w(TAG, "listenChildCommands cancelled: ${error.message}")
+            }
+        }
+
+        commandsRef.addChildEventListener(listener)
+        return {
+            try {
+                commandsRef.removeEventListener(listener)
+            } catch (_: Exception) {}
         }
     }
 
@@ -961,8 +1040,8 @@ object FirebaseRealtimeSyncManager {
                     val status = childSnap.child("status").getValue(String::class.java) ?: "ACTIVE"
                     val timestamp = childSnap.child("timestamp").getValue(Long::class.java) ?: 0L
                     val ageMs = System.currentTimeMillis() - timestamp
-                    // Process active recent alerts (within last 15 minutes)
-                    if (active && status.equals("ACTIVE", ignoreCase = true) && ageMs < 900000L) {
+                    // Process only fresh alerts (within last 2 minutes) so an old SOS does not re-sound on restart
+                    if (active && status.equals("ACTIVE", ignoreCase = true) && ageMs < 120000L) {
                         val id = childSnap.child("id").getValue(String::class.java)
                             ?: childSnap.child("eventId").getValue(String::class.java)
                             ?: childSnap.key ?: java.util.UUID.randomUUID().toString()

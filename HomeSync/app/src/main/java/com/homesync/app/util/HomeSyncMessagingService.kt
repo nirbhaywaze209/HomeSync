@@ -97,6 +97,13 @@ class HomeSyncMessagingService : FirebaseMessagingService() {
 
         markEventProcessed(applicationContext, eventId)
 
+        if (notifType.equals("CHILD_COMMAND", ignoreCase = true)) {
+            // Start the child service so its command listener applies this command, even if the app was closed
+            com.homesync.app.service.HomeSyncForegroundService.startForChild(applicationContext)
+            Log.i(TAG, "CHILD_COMMAND_PUSH_RECEIVED eventId=$eventId")
+            return
+        }
+
         val title = data["title"] ?: remoteMessage.notification?.title ?: "HomeSync Alert"
         val body = data["message"] ?: data["body"] ?: remoteMessage.notification?.body ?: ""
         val childName = data["childName"] ?: "Child"
@@ -104,6 +111,13 @@ class HomeSyncMessagingService : FirebaseMessagingService() {
         val familyId = data["familyId"] ?: ""
 
         if (notifType.equals("SOS_EMERGENCY", ignoreCase = true)) {
+            // Start the guardian safety service so its siren and live SOS listener run
+            // even though the app was closed or the phone was locked.
+            try {
+                com.homesync.app.service.HomeSyncForegroundService.startForGuardian(applicationContext)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not start guardian service for SOS", e)
+            }
             showEmergencyNotification(
                 context = applicationContext,
                 eventId = eventId,

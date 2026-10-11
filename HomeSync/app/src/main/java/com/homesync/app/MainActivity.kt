@@ -39,11 +39,21 @@ class MainActivity : ComponentActivity() {
         com.homesync.app.util.NotificationManager.ensureChannels(applicationContext)
         com.homesync.app.util.HomeSyncMessagingService.ensureEmergencyChannel(applicationContext)
 
-        // Request POST_NOTIFICATIONS on Android 13+
+        // Request essential permissions (Notifications & Location) at startup
+        val requiredPerms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+                requiredPerms.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requiredPerms.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requiredPerms.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (requiredPerms.isNotEmpty()) {
+            requestPermissions(requiredPerms.toTypedArray(), 101)
         }
 
         // Register/Refresh FCM token immediately on app start
@@ -270,8 +280,8 @@ class MainActivity : ComponentActivity() {
                                 Log.i("HomeSyncAuth", "AUTH_NEW_ACCOUNT uid=$uid")
                                 val existingFamId = FamilyManager.getStoredFamilyId(context).ifBlank { session?.familyId ?: "" }
                                 val initialRole = if (session != null && session.screen == "CHILD") FamilyRole.CHILD
-                                    else if (session != null && session.screen == "GUARDIAN") FamilyRole.GUARDIAN
-                                    else (if (userAge in 1..15) FamilyRole.CHILD else FamilyRole.GUARDIAN)
+                                else if (session != null && session.screen == "GUARDIAN") FamilyRole.GUARDIAN
+                                else (if (userAge in 1..15) FamilyRole.CHILD else FamilyRole.GUARDIAN)
 
                                 val userPayload = mapOf(
                                     "uid" to uid,
@@ -367,9 +377,9 @@ class MainActivity : ComponentActivity() {
 
             val devChildId = if (currentChildId.isNotBlank()) currentChildId else ChildIdManager.getDeviceChildId(context)
             val isChildRole = currentScreen != "GUARDIAN" && (
-                currentScreen == "CHILD" || currentScreen == "LOCKED" ||
-                (userAge in 1..15) || FamilyManager.getStoredUserRole(context) == FamilyRole.CHILD
-            )
+                    currentScreen == "CHILD" || currentScreen == "LOCKED" ||
+                            (userAge in 1..15) || FamilyManager.getStoredUserRole(context) == FamilyRole.CHILD
+                    )
 
             // Direct real-time lock/unlock command listener on Child device (instant <100ms response)
             DisposableEffect(isChildRole, devChildId) {
@@ -385,7 +395,7 @@ class MainActivity : ComponentActivity() {
                                 cmdId.startsWith("GRANT") || commandType.contains("EXTRA_TIME")
                         val isExplicitLockCmd = cmdId.startsWith("LOCK") || commandType.contains("LOCK")
 
-                        val shouldLock = if (isExplicitUnlockCmd) false else (locked || isExplicitLockCmd)
+                        val shouldLock = locked || (isExplicitLockCmd && !isExplicitUnlockCmd)
 
                         if (shouldLock && currentScreen != "LOCKED" && currentScreen != "LOGIN" && currentScreen != "FAMILY_SETUP") {
                             currentScreen = "LOCKED"
@@ -583,7 +593,11 @@ class MainActivity : ComponentActivity() {
                         linkedChildCode = if (linkedChildCode.isNotBlank()) linkedChildCode else ChildIdManager.getDeviceChildId(context),
                         onLogout = performLogout
                     )
-                    "LOCKED" -> {
+                    "LOCKED" -> if (storedRole == FamilyRole.GUARDIAN) {
+                        // A guardian device never shows the child lockout screen, even if
+                        // lock flags were written to this phone's local storage.
+                        LaunchedEffect(Unit) { currentScreen = "GUARDIAN" }
+                    } else {
                         val targetChildId = if (currentChildId.isNotBlank()) currentChildId else if (linkedChildCode.isNotBlank()) linkedChildCode else ChildIdManager.getDeviceChildId(context)
                         ScreenTimeManager.checkAndApplyDailyReset(context, targetChildId)
                         LockoutScreen(

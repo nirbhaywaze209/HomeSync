@@ -170,14 +170,12 @@ exports.sendEmergencySosPush = functions.firestore
           timestamp: String(timestamp),
           click_action: "OPEN_GUARDIAN_MAP"
         },
+        // Pure data message. A "notification" block here makes FCM show the message itself
+        // when the app is closed or in background, so onMessageReceived() never runs and the
+        // alert shows with no title or body. Data-only + high priority wakes the app every time.
         android: {
           priority: "high",
-          ttl: 86400000, // 24 hours TTL
-          notification: {
-            channelId: "homesync_emergency_alerts_v2",
-            priority: "max",
-            visibility: "public"
-          }
+          ttl: 86400000 // 24 hours TTL
         }
       }));
 
@@ -230,4 +228,44 @@ exports.sendEmergencySosPush = functions.firestore
         processedAt: admin.firestore.FieldValue.serverTimestamp()
       });
     }
+  });
+
+// Sends a high-priority data push to the child's phone whenever a command is written to hs_commands.
+// This lets locks, unlocks, resets and extra time reach the child even when the app is closed or the phone is locked.
+exports.sendChildCommandPush = functions.database
+  .ref("/hs_commands/{childCode}/{commandId}")
+  .onCreate(async (snapshot, context) => {
+    const childCode = String(context.params.childCode || "").trim().toUpperCase();
+    const commandId = String(context.params.commandId || "");
+    if (!childCode || !commandId) return null;
+    const data = snapshot.val() || {};
+    const commandType = String(data.commandType || "");
+
+    const membersSnap = await admin.firestore().collectionGroup("members")
+      .where("childCode", "==", childCode).get();
+
+    const tokens = [];
+    membersSnap.forEach((doc) => {
+      const m = doc.data() || {};
+      if (m.fcmToken && String(m.role || "").toUpperCase() === "CHILD") tokens.push(m.fcmToken);
+    });
+    if (tokens.length === 0) {
+      console.log(`CHILD_COMMAND_NO_TOKEN childCode=${childCode} commandId=${commandId}`);
+      return null;
+    }
+
+    const messages = tokens.map((token) => ({
+      token: token,
+      data: {
+        type: "CHILD_COMMAND",
+        eventId: commandId,
+        commandId: commandId,
+        commandType: commandType,
+        childCode: childCode
+      },
+      android: { priority: "high", ttl: 3600000 }
+    }));
+    const res = await admin.messaging().sendEach(messages);
+    console.log(`CHILD_COMMAND_PUSH_SENT childCode=${childCode} commandId=${commandId} ok=${res.successCount} failed=${res.failureCount}`);
+    return null;
   });

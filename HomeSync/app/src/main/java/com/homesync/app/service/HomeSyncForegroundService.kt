@@ -1,6 +1,6 @@
 package com.homesync.app.service
 
-import android.app.AlarmManager
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,30 +8,33 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import com.homesync.app.MainActivity
 import com.homesync.app.util.ChildIdManager
 import com.homesync.app.util.FamilyManager
-import com.homesync.app.util.FamilyRole
 import com.homesync.app.util.FirebaseRealtimeSyncManager
 import com.homesync.app.util.FirebaseSyncManager
 import com.homesync.app.util.LocationHelper
 import com.homesync.app.util.NotificationType
-import com.homesync.app.util.ParentalControlManager
-import com.homesync.app.util.ScreenTimeManager
 import com.homesync.app.util.SystemNotification
+import java.util.Collections
+import java.util.HashSet
 import java.util.UUID
 import kotlinx.coroutines.*
 
@@ -54,44 +57,28 @@ class HomeSyncForegroundService : Service() {
         const val ACTION_TRIGGER_SOS = "com.homesync.app.action.TRIGGER_SOS"
         const val ACTION_STOP_ALARM = "com.homesync.app.action.STOP_ALARM"
 
+        private val EMERGENCY_VIBRATION_PATTERN = longArrayOf(0, 800, 300, 800, 300, 800, 500)
+
         @Volatile
         var isServiceRunning = false
 
         @Volatile
         var activeEmergencyAlert: SystemNotification? = null
 
+        @Volatile
+        var instance: HomeSyncForegroundService? = null
+
         fun startForChild(context: Context) {
-            val intent = Intent(context, HomeSyncForegroundService::class.java).apply {
-                action = ACTION_START_CHILD
-            }
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to start service for child", e)
-            }
+            startServiceSafely(context, ACTION_START_CHILD)
         }
 
         fun startForGuardian(context: Context) {
-            val intent = Intent(context, HomeSyncForegroundService::class.java).apply {
-                action = ACTION_START_GUARDIAN
-            }
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to start service for guardian", e)
-            }
+            startServiceSafely(context, ACTION_START_GUARDIAN)
         }
 
-        @Volatile
-        var instance: HomeSyncForegroundService? = null
+        fun triggerSosDirect(context: Context) {
+            startServiceSafely(context, ACTION_TRIGGER_SOS)
+        }
 
         fun stopAlarm(context: Context) {
             activeEmergencyAlert = null
@@ -99,6 +86,7 @@ class HomeSyncForegroundService : Service() {
                 instance?.silenceAlarm()
             } catch (_: Exception) {}
 
+            // Stopping the siren does not need a foreground start
             val intent = Intent(context, HomeSyncForegroundService::class.java).apply {
                 action = ACTION_STOP_ALARM
             }
@@ -107,9 +95,9 @@ class HomeSyncForegroundService : Service() {
             } catch (_: Exception) {}
         }
 
-        fun triggerSosDirect(context: Context) {
+        private fun startServiceSafely(context: Context, action: String) {
             val intent = Intent(context, HomeSyncForegroundService::class.java).apply {
-                action = ACTION_TRIGGER_SOS
+                this.action = action
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -118,7 +106,7 @@ class HomeSyncForegroundService : Service() {
                     context.startService(intent)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to trigger SOS direct via service", e)
+                Log.w(TAG, "Failed to start service with action=$action", e)
             }
         }
     }
@@ -132,8 +120,9 @@ class HomeSyncForegroundService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
-    private val handledAlertIds = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
-    private val silencedAlertIds = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
+    private val handledAlertIds = Collections.synchronizedSet(HashSet<String>())
+    private val silencedAlertIds = Collections.synchronizedSet(HashSet<String>())
+    private val handledServiceCommandIds = Collections.synchronizedSet(HashSet<String>())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -149,27 +138,36 @@ class HomeSyncForegroundService : Service() {
         val action = intent?.action ?: ACTION_START_CHILD
         Log.i(TAG, "onStartCommand action=$action")
 
+        // startForeground must run for every action, because every start uses
+        // startForegroundService. Otherwise Android crashes the app.
+        val notification = if (action == ACTION_START_GUARDIAN) {
+            buildGuardianPersistentNotification()
+        } else {
+            buildChildPersistentNotification()
+        }
+
+        // DATA_SYNC is always allowed. LOCATION is added only when a location
+        // permission is granted, otherwise Android 14+ rejects the start.
+        var serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        if (hasLocationPermission()) {
+            serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        }
+        ServiceCompat.startForeground(this, NOTIFICATION_ID_PERSISTENT, notification, serviceType)
+
         when (action) {
-            ACTION_TRIGGER_SOS -> {
-                handleTriggerSos()
-            }
-            ACTION_STOP_ALARM -> {
-                silenceAlarm()
-            }
+            ACTION_TRIGGER_SOS -> handleTriggerSos()
+            ACTION_STOP_ALARM -> silenceAlarm()
             ACTION_START_GUARDIAN -> {
                 currentRole = "GUARDIAN"
                 stopChildScreenTimeMonitoring()
-                startForeground(NOTIFICATION_ID_PERSISTENT, buildGuardianPersistentNotification())
                 setupGuardianSosListener()
             }
             ACTION_START_CHILD -> {
                 currentRole = "CHILD"
-                startForeground(NOTIFICATION_ID_PERSISTENT, buildChildPersistentNotification())
                 setupChildScreenTimeMonitoring()
             }
             else -> {
                 currentRole = "CHILD"
-                startForeground(NOTIFICATION_ID_PERSISTENT, buildChildPersistentNotification())
                 setupChildScreenTimeMonitoring()
             }
         }
@@ -177,37 +175,91 @@ class HomeSyncForegroundService : Service() {
         return START_STICKY
     }
 
-    private fun ensureChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+    private fun hasLocationPermission(): Boolean {
+        val fine = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
 
-            // 1. Silent persistent channel for child
-            val childChannel = NotificationChannel(
-                CHANNEL_CHILD_PERSISTENT_ID,
-                CHANNEL_CHILD_PERSISTENT_NAME,
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Ongoing notification for Child Safety and fast SOS access"
-                setShowBadge(false)
+    // ---------- Vibration helpers (version checks and deprecation handled here) ----------
+
+    @Suppress("DEPRECATION")
+    private fun legacyVibrator(): Vibrator? =
+        getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+
+    private fun startEmergencyVibration() {
+        try {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                    (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)
+                        ?.defaultVibrator
+                        ?.vibrate(VibrationEffect.createWaveform(EMERGENCY_VIBRATION_PATTERN, 0))
+                }
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
+                    legacyVibrator()?.vibrate(
+                        VibrationEffect.createWaveform(EMERGENCY_VIBRATION_PATTERN, 0)
+                    )
+                }
+                else -> {
+                    @Suppress("DEPRECATION")
+                    legacyVibrator()?.vibrate(EMERGENCY_VIBRATION_PATTERN, 0)
+                }
             }
-            nm.createNotificationChannel(childChannel)
-
-            // 2. Silent persistent channel for guardian
-            val guardianChannel = NotificationChannel(
-                CHANNEL_GUARDIAN_PERSISTENT_ID,
-                CHANNEL_GUARDIAN_PERSISTENT_NAME,
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Ongoing notification for Guardian background real-time safety monitoring"
-                setShowBadge(false)
-            }
-            nm.createNotificationChannel(guardianChannel)
-
-            // 3. High-importance emergency alarm channel
-            com.homesync.app.util.NotificationManager.ensureChannels(this)
-            com.homesync.app.util.HomeSyncMessagingService.ensureEmergencyChannel(this)
+        } catch (e: Exception) {
+            Log.w(TAG, "Emergency vibration failed", e)
         }
     }
+
+    private fun stopVibration() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)
+                    ?.defaultVibrator
+                    ?.cancel()
+            } else {
+                legacyVibrator()?.cancel()
+            }
+        } catch (_: Exception) {}
+    }
+
+    // ---------- Channels ----------
+
+    private fun ensureChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+
+        // 1. Silent persistent channel for child
+        val childChannel = NotificationChannel(
+            CHANNEL_CHILD_PERSISTENT_ID,
+            CHANNEL_CHILD_PERSISTENT_NAME,
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Ongoing notification for Child Safety and fast SOS access"
+            setShowBadge(false)
+        }
+        nm.createNotificationChannel(childChannel)
+
+        // 2. Silent persistent channel for guardian
+        val guardianChannel = NotificationChannel(
+            CHANNEL_GUARDIAN_PERSISTENT_ID,
+            CHANNEL_GUARDIAN_PERSISTENT_NAME,
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Ongoing notification for Guardian background real-time safety monitoring"
+            setShowBadge(false)
+        }
+        nm.createNotificationChannel(guardianChannel)
+
+        // 3. High-importance emergency alarm channel
+        com.homesync.app.util.NotificationManager.ensureChannels(this)
+        com.homesync.app.util.HomeSyncMessagingService.ensureEmergencyChannel(this)
+    }
+
+    // ---------- Notifications ----------
 
     private fun buildChildPersistentNotification(): Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
@@ -220,25 +272,16 @@ class HomeSyncForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Instant SOS Action Intent
+        // Instant SOS action intent
         val sosIntent = Intent(this, HomeSyncForegroundService::class.java).apply {
             action = ACTION_TRIGGER_SOS
         }
-        val sosPendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PendingIntent.getForegroundService(
-                this,
-                1002,
-                sosIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        } else {
-            PendingIntent.getService(
-                this,
-                1002,
-                sosIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        }
+        val sosPendingIntent = PendingIntent.getForegroundService(
+            this,
+            1002,
+            sosIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         return NotificationCompat.Builder(this, CHANNEL_CHILD_PERSISTENT_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
@@ -276,6 +319,8 @@ class HomeSyncForegroundService : Service() {
             .build()
     }
 
+    // ---------- SOS (child side) ----------
+
     private fun handleTriggerSos() {
         FirebaseRealtimeSyncManager.getRtdb()?.goOnline()
         val activeChildId = ChildIdManager.getDeviceChildId(this)
@@ -289,7 +334,6 @@ class HomeSyncForegroundService : Service() {
         val lng = loc?.longitude ?: 0.0
 
         val sosId = "sos_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
-        val clickTs = System.currentTimeMillis()
 
         Log.i(TAG, "SOS_SERVICE_TRIGGERED alertId=$sosId childCode=$activeChildId lat=$lat lng=$lng")
 
@@ -307,23 +351,38 @@ class HomeSyncForegroundService : Service() {
             longitude = lng
         )
 
-        // 1. Immediately write to dedicated RTDB fast node
+        // 1. Fast path: the only write the guardian listens to. Send it first.
         FirebaseRealtimeSyncManager.sendEmergencySos(
             familyId = effFamilyId,
             childCode = activeChildId,
             notification = sosNotif
         )
 
-        // 2. Write to RTDB hs_notifications
-        FirebaseRealtimeSyncManager.sendNotification(sosNotif)
-
-        // 3. Write to Firestore hs_sos_events & hs_notifications
-        FirebaseSyncManager.sendNotificationToCloud(sosNotif)
+        // 2 and 3. History copies to RTDB and Firestore run in the background,
+        // so they never hold up the SOS.
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRealtimeSyncManager.sendNotification(sosNotif)
+            } catch (e: Exception) {
+                Log.w(TAG, "RTDB history write failed", e)
+            }
+            try {
+                FirebaseSyncManager.sendNotificationToCloud(sosNotif)
+            } catch (e: Exception) {
+                Log.w(TAG, "Firestore write failed", e)
+            }
+        }
 
         // Local feedback
         playLocalAlertBeep()
-        android.widget.Toast.makeText(this, "🚨 EMERGENCY SOS Alert Sent to Parents!", android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(
+            this,
+            "🚨 EMERGENCY SOS Alert Sent to Parents!",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
     }
+
+    // ---------- Guardian listeners ----------
 
     private fun setupGuardianSosListener() {
         cancelSosListener?.invoke()
@@ -332,35 +391,24 @@ class HomeSyncForegroundService : Service() {
         val familyId = FamilyManager.getStoredFamilyId(this)
         Log.i(TAG, "Setting up Guardian SOS listener for family: $familyId")
 
-        // Ensure CPU stays active for background socket delivery
+        // Keep the CPU active for background socket delivery
         acquireMonitorWakeLock()
 
-        // Force RTDB to stay online in background and keep tables synced
+        // Keep RTDB online and keep the SOS node synced.
+        // hs_notifications is intentionally not synced here: it grows over time and slows delivery.
         val rtdb = FirebaseRealtimeSyncManager.getRtdb()
         rtdb?.goOnline()
         if (familyId.isNotBlank()) {
             try {
                 rtdb?.getReference("hs_sos")?.child(familyId.trim().uppercase())?.keepSynced(true)
-                rtdb?.getReference("hs_notifications")?.keepSynced(true)
             } catch (_: Exception) {}
         }
 
-        // 1. Dedicated ultra-fast listener on hs_sos/{familyId}
+        // Fast listener on hs_sos/{familyId}
         if (familyId.isNotBlank()) {
             cancelSosListener = FirebaseRealtimeSyncManager.listenEmergencySos(familyId) { sosNotif ->
                 Log.i(TAG, "GUARDIAN_SERVICE_SOS_RECEIVED from hs_sos id=${sosNotif.id} child=${sosNotif.childName}")
                 triggerGuardianEmergencyAlert(sosNotif)
-            }
-        }
-
-        // 2. Redundant listener on hs_notifications for any SOS
-        cancelNotifListener = FirebaseRealtimeSyncManager.listenNotifications { notif ->
-            if (notif.type == NotificationType.SOS_EMERGENCY && notif.targetRole.equals("GUARDIAN", ignoreCase = true)) {
-                val myFamily = FamilyManager.getStoredFamilyId(this)
-                if (myFamily.isBlank() || notif.familyId.isBlank() || myFamily.equals(notif.familyId, ignoreCase = true)) {
-                    Log.i(TAG, "GUARDIAN_SERVICE_SOS_RECEIVED from hs_notifications id=${notif.id} child=${notif.childName}")
-                    triggerGuardianEmergencyAlert(notif)
-                }
             }
         }
     }
@@ -377,13 +425,13 @@ class HomeSyncForegroundService : Service() {
 
         activeEmergencyAlert = sosNotif
 
-        // Wake screen
+        // Wake the screen
         acquireWakeLock()
 
         // Start siren sound and vibration
         startEmergencySiren()
 
-        // Fire full-screen heads up notification
+        // Show the full-screen heads-up notification
         showEmergencyHeadsUpNotification(sosNotif)
     }
 
@@ -411,29 +459,24 @@ class HomeSyncForegroundService : Service() {
         val silenceIntent = Intent(this, HomeSyncForegroundService::class.java).apply {
             action = ACTION_STOP_ALARM
         }
-        val silencePendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PendingIntent.getForegroundService(
-                this,
-                9999,
-                silenceIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        } else {
-            PendingIntent.getService(
-                this,
-                9999,
-                silenceIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        }
+        val silencePendingIntent = PendingIntent.getForegroundService(
+            this,
+            9999,
+            silenceIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        val emergencyChannelId = com.homesync.app.util.NotificationManager.CHANNEL_EMERGENCY_ID
-
-        val builder = NotificationCompat.Builder(this, emergencyChannelId)
+        val builder = NotificationCompat.Builder(
+            this,
+            com.homesync.app.util.NotificationManager.CHANNEL_EMERGENCY_ID
+        )
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("🚨 EMERGENCY SOS: ${notif.childName} Needs Help!")
             .setContentText(notif.message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("${notif.message}\n\nTap immediately to view live child location and contact."))
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("${notif.message}\n\nTap immediately to view live child location and contact.")
+            )
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -445,6 +488,8 @@ class HomeSyncForegroundService : Service() {
         nm.notify(NOTIFICATION_ID_EMERGENCY, builder.build())
     }
 
+    // ---------- Siren and alarm ----------
+
     private fun startEmergencySiren() {
         silenceAlarm()
         try {
@@ -452,39 +497,25 @@ class HomeSyncForegroundService : Service() {
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(applicationContext, alarmUri)
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .build()
-                )
-                isLooping = true
-                prepare()
-                start()
+            if (alarmUri != null) {
+                mediaPlayer = MediaPlayer().apply {
+                    setDataSource(applicationContext, alarmUri)
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .build()
+                    )
+                    isLooping = true
+                    prepare()
+                    start()
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error playing siren media player", e)
         }
 
-        // Emergency Vibration Pattern
-        try {
-            val pattern = longArrayOf(0, 800, 300, 800, 300, 800, 500)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                vm?.defaultVibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            } else {
-                @Suppress("DEPRECATION")
-                val v = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    v?.vibrate(VibrationEffect.createWaveform(pattern, 0))
-                } else {
-                    @Suppress("DEPRECATION")
-                    v?.vibrate(pattern, 0)
-                }
-            }
-        } catch (_: Exception) {}
+        startEmergencyVibration()
     }
 
     fun silenceAlarm() {
@@ -522,14 +553,7 @@ class HomeSyncForegroundService : Service() {
         releaseWakeLock()
     }
 
-    private fun playLocalAlertBeep() {
-        try {
-            val alertTone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val mp = MediaPlayer.create(applicationContext, alertTone)
-            mp?.start()
-            mp?.setOnCompletionListener { it.release() }
-        } catch (_: Exception) {}
-    }
+    // ---------- Wake locks and feedback ----------
 
     private fun acquireWakeLock() {
         try {
@@ -577,41 +601,11 @@ class HomeSyncForegroundService : Service() {
         monitorWakeLock = null
     }
 
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        super.onTaskRemoved(rootIntent)
-        Log.i(TAG, "onTaskRemoved: app swiped away, scheduling immediate service resurrection")
-        val restartIntent = Intent(applicationContext, HomeSyncForegroundService::class.java).apply {
-            action = if (currentRole == "GUARDIAN") ACTION_START_GUARDIAN else ACTION_START_CHILD
-        }
-        val restartPendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PendingIntent.getForegroundService(
-                applicationContext,
-                8888,
-                restartIntent,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-        } else {
-            PendingIntent.getService(
-                applicationContext,
-                8888,
-                restartIntent,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-        }
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+    private fun playLocalAlertBeep() {
         try {
-            alarmManager?.setExactAndAllowWhileIdle(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 500L,
-                restartPendingIntent
-            )
-        } catch (_: Exception) {
-            alarmManager?.set(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 500L,
-                restartPendingIntent
-            )
-        }
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+                .startTone(ToneGenerator.TONE_PROP_BEEP, 300)
+        } catch (_: Exception) {}
     }
 
     private fun stopChildScreenTimeMonitoring() {
@@ -629,59 +623,64 @@ class HomeSyncForegroundService : Service() {
 
         Log.i(TAG, "Starting background screen time monitoring for child=$activeChildId")
 
-        // 1. Listen for remote Guardian commands (LOCK, UNLOCK, RESET, GRANT, SET_LIMIT) in the background
-        cancelChildCommandListener = FirebaseRealtimeSyncManager.listenScreenTimeWithCommandDetails(activeChildId) { rem, locked, tot, _, cmdId, cmdTimestamp, curfewOverride, targetChildId, commandType, _, resetVersion ->
+        // 1. Listen for remote Guardian commands via dedicated hs_commands node in the background
+        cancelChildCommandListener = FirebaseRealtimeSyncManager.listenChildCommands(activeChildId) { cmdId, commandType, targetChildId, cmdTimestamp, _ ->
             try {
                 val cleanTarget = targetChildId.trim().uppercase()
                 val cleanActive = activeChildId.trim().uppercase()
                 if (cleanTarget.isNotEmpty() && cleanTarget != "ALL" && cleanTarget != cleanActive) {
-                    return@listenScreenTimeWithCommandDetails
+                    return@listenChildCommands
                 }
 
-                // Cloud Reset Detection
-                val localResetVersion = ScreenTimeManager.getDailyResetVersion(this, activeChildId)
-                if (resetVersion > 0L && resetVersion > localResetVersion) {
-                    ScreenTimeManager.recordResetBaseForChild(this, activeChildId, resetVersion)
-                    ParentalControlManager.setCurfewOverride(this, activeChildId, true)
-                    ScreenTimeManager.setLocalLocked(this, activeChildId, false)
-                    ScreenTimeManager.setRemoteLocked(this, activeChildId, false)
-                    val resetAllowance = if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
-                    ScreenTimeManager.saveTotalAllowance(this, activeChildId, resetAllowance)
-                    ScreenTimeManager.saveRemainingSeconds(this, activeChildId, resetAllowance)
-                    ScreenTimeManager.saveUsedSeconds(this, activeChildId, 0)
-                    ScreenTimeManager.updateUsageFromChild(this, activeChildId, 0)
-                    return@listenScreenTimeWithCommandDetails
+                if (cmdId.isNotBlank() && cmdId != "NONE" && !handledServiceCommandIds.add(cmdId)) {
+                    Log.i(TAG, "COMMAND_IGNORED_DUPLICATE commandId=$cmdId")
+                    return@listenChildCommands
                 }
-
                 if (cmdId.startsWith("LOCK") || commandType.contains("LOCK")) {
-                    ParentalControlManager.setCurfewOverride(this, activeChildId, false)
-                    ScreenTimeManager.setLocalLocked(this, activeChildId, true)
-                    ScreenTimeManager.setRemoteLocked(this, activeChildId, true)
-                    ScreenTimeManager.saveRemainingSeconds(this, activeChildId, 0)
-                    ScreenTimeManager.saveLastCommand(this, activeChildId, cmdId, cmdTimestamp, true)
+                    com.homesync.app.util.ParentalControlManager.setCurfewOverride(this, activeChildId, false)
+                    com.homesync.app.util.ScreenTimeManager.setLocalLocked(this, activeChildId, true)
+                    com.homesync.app.util.ScreenTimeManager.setRemoteLocked(this, activeChildId, true)
+                    com.homesync.app.util.ScreenTimeManager.saveRemainingSeconds(this, activeChildId, 0)
+                    com.homesync.app.util.ScreenTimeManager.saveLastCommand(this, activeChildId, cmdId, cmdTimestamp, true)
                 } else if (cmdId.startsWith("UNLOCK") || commandType.contains("UNLOCK")) {
-                    ParentalControlManager.setCurfewOverride(this, activeChildId, true)
-                    ScreenTimeManager.setLocalLocked(this, activeChildId, false)
-                    ScreenTimeManager.setRemoteLocked(this, activeChildId, false)
-                    val actualUsed = ScreenTimeManager.getUsedSeconds(this, activeChildId)
-                    val currentTot = ScreenTimeManager.getTotalAllowance(this, activeChildId)
-                    val effTot = if (tot > 0) tot else (if (currentTot > 0) currentTot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS)
-                    val finalTot = if (effTot <= actualUsed) (actualUsed + (if (rem > 0) rem else 1800)) else effTot
+                    com.homesync.app.util.ParentalControlManager.setCurfewOverride(this, activeChildId, true)
+                    com.homesync.app.util.ScreenTimeManager.setLocalLocked(this, activeChildId, false)
+                    com.homesync.app.util.ScreenTimeManager.setRemoteLocked(this, activeChildId, false)
+                    val actualUsed = com.homesync.app.util.ScreenTimeManager.getUsedSeconds(this, activeChildId)
+                    val currentTot = com.homesync.app.util.ScreenTimeManager.getTotalAllowance(this, activeChildId)
+                    val effTot = if (currentTot > 0) currentTot else com.homesync.app.util.ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
+                    val finalTot = if (effTot <= actualUsed) (actualUsed + 1800) else effTot
                     val finalRem = (finalTot - actualUsed).coerceAtLeast(0)
-                    ScreenTimeManager.saveTotalAllowance(this, activeChildId, finalTot)
-                    ScreenTimeManager.saveRemainingSeconds(this, activeChildId, finalRem)
-                    ScreenTimeManager.saveUsedSeconds(this, activeChildId, actualUsed)
-                    ScreenTimeManager.saveLastCommand(this, activeChildId, cmdId, cmdTimestamp, false)
+                    com.homesync.app.util.ScreenTimeManager.saveTotalAllowance(this, activeChildId, finalTot)
+                    com.homesync.app.util.ScreenTimeManager.saveRemainingSeconds(this, activeChildId, finalRem)
+                    com.homesync.app.util.ScreenTimeManager.saveUsedSeconds(this, activeChildId, actualUsed)
+                    com.homesync.app.util.ScreenTimeManager.saveLastCommand(this, activeChildId, cmdId, cmdTimestamp, false)
                 } else if (cmdId.startsWith("RESET") || commandType.startsWith("RESET")) {
-                    ParentalControlManager.setCurfewOverride(this, activeChildId, true)
-                    ScreenTimeManager.setLocalLocked(this, activeChildId, false)
-                    ScreenTimeManager.setRemoteLocked(this, activeChildId, false)
-                    val resetAllowance = if (tot > 0) tot else ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
-                    ScreenTimeManager.saveTotalAllowance(this, activeChildId, resetAllowance)
-                    ScreenTimeManager.saveRemainingSeconds(this, activeChildId, resetAllowance)
-                    ScreenTimeManager.saveUsedSeconds(this, activeChildId, 0)
-                    ScreenTimeManager.recordResetBaseForChild(this, activeChildId, if (cmdTimestamp > 0) cmdTimestamp else System.currentTimeMillis())
-                    ScreenTimeManager.updateUsageFromChild(this, activeChildId, 0)
+                    com.homesync.app.util.ParentalControlManager.setCurfewOverride(this, activeChildId, true)
+                    com.homesync.app.util.ScreenTimeManager.setLocalLocked(this, activeChildId, false)
+                    com.homesync.app.util.ScreenTimeManager.setRemoteLocked(this, activeChildId, false)
+                    val resetAllowance = com.homesync.app.util.ScreenTimeManager.DEFAULT_ALLOWANCE_SECONDS
+                    com.homesync.app.util.ScreenTimeManager.saveTotalAllowance(this, activeChildId, resetAllowance)
+                    com.homesync.app.util.ScreenTimeManager.saveRemainingSeconds(this, activeChildId, resetAllowance)
+                    com.homesync.app.util.ScreenTimeManager.saveUsedSeconds(this, activeChildId, 0)
+                    com.homesync.app.util.ScreenTimeManager.recordResetBaseForChild(this, activeChildId, if (cmdTimestamp > 0) cmdTimestamp else System.currentTimeMillis())
+                    com.homesync.app.util.ScreenTimeManager.updateUsageFromChild(this, activeChildId, 0)
+                    try {
+                        FirebaseRealtimeSyncManager.getRtdb()
+                            ?.getReference("hs_commands")
+                            ?.child(activeChildId)
+                            ?.child(cmdId)
+                            ?.removeValue()
+                    } catch (e: Exception) {
+                        Log.w("HomeSyncLatency", "Failed to remove command $cmdId from hs_commands", e)
+                    }
+                }
+                // Remove the command so it can never run again (stops replays and repeated lock blinking)
+                if (cmdId.isNotBlank() && cmdId != "NONE") {
+                    try {
+                        FirebaseRealtimeSyncManager.getRtdb()?.getReference("hs_commands")
+                            ?.child(activeChildId)?.child(cmdId)?.removeValue()
+                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing screen time command in background service", e)
@@ -693,33 +692,33 @@ class HomeSyncForegroundService : Service() {
             var cycleCount = 0
             while (isActive) {
                 try {
-                    delay(3000L)
+                    delay(15000L)
                     cycleCount++
 
-                    ScreenTimeManager.checkAndApplyDailyReset(this@HomeSyncForegroundService, activeChildId)
+                    com.homesync.app.util.ScreenTimeManager.checkAndApplyDailyReset(this@HomeSyncForegroundService, activeChildId)
 
-                    val isLocked = ScreenTimeManager.isDeviceLocked(this@HomeSyncForegroundService, activeChildId)
+                    val isLocked = com.homesync.app.util.ScreenTimeManager.isDeviceLocked(this@HomeSyncForegroundService, activeChildId)
                     if (!isLocked) {
                         val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
                         val isInteractive = pm?.isInteractive ?: true
-                        val deltaSeconds = if (isInteractive) 3 else 0
+                        val deltaSeconds = if (isInteractive) 15 else 0
 
-                        val actualUsed = ScreenTimeManager.recordUsageTick(this@HomeSyncForegroundService, activeChildId, deltaSeconds)
-                        val currentTot = ScreenTimeManager.getTotalAllowance(this@HomeSyncForegroundService, activeChildId)
+                        val actualUsed = com.homesync.app.util.ScreenTimeManager.recordUsageTick(this@HomeSyncForegroundService, activeChildId, deltaSeconds)
+                        val currentTot = com.homesync.app.util.ScreenTimeManager.getTotalAllowance(this@HomeSyncForegroundService, activeChildId)
                         val calculatedRem = (currentTot - actualUsed).coerceAtLeast(0)
 
-                        ScreenTimeManager.saveRemainingSeconds(this@HomeSyncForegroundService, activeChildId, calculatedRem)
-                        ScreenTimeManager.saveUsedSeconds(this@HomeSyncForegroundService, activeChildId, actualUsed)
+                        com.homesync.app.util.ScreenTimeManager.saveRemainingSeconds(this@HomeSyncForegroundService, activeChildId, calculatedRem)
+                        com.homesync.app.util.ScreenTimeManager.saveUsedSeconds(this@HomeSyncForegroundService, activeChildId, actualUsed)
 
                         if (calculatedRem <= 0 && actualUsed >= currentTot && currentTot > 0) {
-                            ScreenTimeManager.setLocalLocked(this@HomeSyncForegroundService, activeChildId, true)
+                            com.homesync.app.util.ScreenTimeManager.setLocalLocked(this@HomeSyncForegroundService, activeChildId, true)
                         }
                     }
 
-                    // Sync usage to cloud every 30s (every 10 cycles) when active, presence heartbeat every 30s (every 10 cycles)
-                    if (cycleCount % 10 == 0) {
-                        val currentUsed = ScreenTimeManager.getUsedSeconds(this@HomeSyncForegroundService, activeChildId)
-                        ScreenTimeManager.updateUsageFromChild(this@HomeSyncForegroundService, activeChildId, currentUsed)
+                    // Sync usage to cloud every 30s (every 2 cycles) when active, presence heartbeat every 30s (every 2 cycles)
+                    if (cycleCount % 2 == 0) {
+                        val currentUsed = com.homesync.app.util.ScreenTimeManager.getUsedSeconds(this@HomeSyncForegroundService, activeChildId)
+                        com.homesync.app.util.ScreenTimeManager.updateUsageFromChild(this@HomeSyncForegroundService, activeChildId, currentUsed)
                         FirebaseRealtimeSyncManager.updatePresence(activeChildId, isOnline = true)
                     }
                 } catch (e: Exception) {
@@ -730,6 +729,8 @@ class HomeSyncForegroundService : Service() {
         }
     }
 
+    // ---------- Lifecycle ----------
+
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning = false
@@ -737,8 +738,11 @@ class HomeSyncForegroundService : Service() {
         releaseMonitorWakeLock()
         cancelSosListener?.invoke()
         cancelNotifListener?.invoke()
+        cancelChildCommandListener?.invoke()
         stopChildScreenTimeMonitoring()
         serviceScope.cancel()
+        wakeLock = null
+        instance = null
         Log.i(TAG, "HomeSyncForegroundService destroyed")
     }
 }
